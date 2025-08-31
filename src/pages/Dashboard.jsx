@@ -54,7 +54,8 @@ function StatCard({ title, value, subtitle, icon: Icon, trend, delay = 0, gradie
             position: 'relative',
             background: gradient || 'linear-gradient(135deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%)',
             border: '1px solid rgba(255,255,255,0.1)',
-            overflow: 'visible',
+            borderRadius: 2,
+            overflow: 'hidden', // Mudança aqui: de 'visible' para 'hidden' para evitar bugs de borda
             '&::before': {
               content: '""',
               position: 'absolute',
@@ -63,7 +64,7 @@ function StatCard({ title, value, subtitle, icon: Icon, trend, delay = 0, gradie
               right: 0,
               height: '4px',
               background: gradient || 'linear-gradient(90deg, #1890FF, #8B5CF6)',
-              borderRadius: '16px 16px 0 0',
+              borderRadius: 0, // Mudança aqui: remover border-radius da barra superior
             }
           }}
         >
@@ -142,7 +143,10 @@ function Dashboard() {
       setStats({
         totalAulas: statsData.totalAulas,
         totalPresencas: statsData.totalPresencas,
+        funcionariosUnicos: statsData.funcionariosUnicos,
+        totalFuncionarios: statsData.totalFuncionarios,
         mediaParticipantes: Number(statsData.mediaParticipantes).toFixed(1),
+        taxaEngajamento: statsData.taxaEngajamento,
         // Calcular taxa de presença (assumindo capacidade média de 10 por aula)
         taxaPresenca: statsData.totalAulas > 0 ? 
           Math.min(100, Math.round((statsData.totalPresencas / (statsData.totalAulas * 10)) * 100)) : 0
@@ -160,11 +164,10 @@ function Dashboard() {
         severity: 'success'
       });
 
-    } catch (err) {
-      console.error("Erro ao buscar dados do dashboard:", err);
-      const errorMessage = formatApiError(err);
+    } catch (error) {
+      console.error('Erro ao carregar dados:', error);
+      const errorMessage = formatApiError(error);
       setError(errorMessage);
-      
       setSnackbar({
         open: true,
         message: `Erro ao carregar dados: ${errorMessage}`,
@@ -175,24 +178,19 @@ function Dashboard() {
     }
   };
 
-  // Processar dados para o gráfico de evolução temporal
   const processChartData = (aulasData) => {
-    if (!aulasData || aulasData.length === 0) {
-      setChartData([]);
-      return;
-    }
-
-    // Agrupar aulas por mês
     const monthlyData = {};
     
     aulasData.forEach(aula => {
       const date = new Date(aula.data_hora);
-      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-      const monthName = date.toLocaleDateString('pt-BR', { month: 'short' });
+      const monthKey = date.toLocaleDateString('pt-BR', { 
+        year: 'numeric', 
+        month: 'short' 
+      });
       
       if (!monthlyData[monthKey]) {
         monthlyData[monthKey] = {
-          mes: monthName.charAt(0).toUpperCase() + monthName.slice(1),
+          mes: monthKey,
           aulas: 0,
           presencas: 0
         };
@@ -202,25 +200,15 @@ function Dashboard() {
       monthlyData[monthKey].presencas += parseInt(aula.num_presencas) || 0;
     });
 
-    // Converter para array e ordenar
-    const chartDataArray = Object.keys(monthlyData)
-      .sort()
-      .map(key => monthlyData[key]);
-
-    setChartData(chartDataArray);
+    setChartData(Object.values(monthlyData).sort((a, b) => new Date(a.mes) - new Date(b.mes)));
   };
 
-  // Processar dados por empresa
   const processEmpresasData = (aulasData) => {
-    if (!aulasData || aulasData.length === 0) {
-      setEmpresasData([]);
-      return;
-    }
-
     const empresas = {};
     
     aulasData.forEach(aula => {
-      const empresa = aula.nome_empresa;
+      const empresa = aula.empresa_nome || 'Não informado';
+      
       if (!empresas[empresa]) {
         empresas[empresa] = {
           nome: empresa,
@@ -228,6 +216,7 @@ function Dashboard() {
           totalPresencas: 0
         };
       }
+      
       empresas[empresa].totalAulas += 1;
       empresas[empresa].totalPresencas += parseInt(aula.num_presencas) || 0;
     });
@@ -299,6 +288,7 @@ function Dashboard() {
               Acompanhe a participação dos seus funcionários no programa de ginástica laboral
             </Typography>
           </Box>
+
           <Button
             startIcon={<Refresh />}
             variant="outlined"
@@ -349,7 +339,7 @@ function Dashboard() {
         {/* Gráfico de Evolução */}
         <Grow in={true} timeout={1000}>
           <Grid item xs={12} lg={8}>
-            <Card sx={{ height: 400 }}>
+            <Card sx={{ height: 400, borderRadius: 2 }}>
               <CardContent sx={{ height: '100%' }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
                   <CalendarToday sx={{ mr: 1, color: 'primary.main' }} />
@@ -413,55 +403,67 @@ function Dashboard() {
           </Grid>
         </Grow>
 
-        {/* Resumo por Empresas */}
-        <Grow in={true} timeout={1200}>
+        {/* Card de Resumo Rápido - ATUALIZADO SEM A INFORMAÇÃO DE EMPRESAS ATENDIDAS */}
+        <Grow in={true} timeout={1600}>
           <Grid item xs={12} lg={4}>
-            <Card sx={{ height: 400 }}>
-              <CardContent>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-                  <Business sx={{ mr: 1, color: 'primary.main' }} />
-                  <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                    Programa de Ginástica
-                  </Typography>
-                </Box>
-                <Box sx={{ maxHeight: 300, overflowY: 'auto' }}>
-                  {empresasData.length > 0 ? (
-                    empresasData.map((empresa, index) => (
-                      <Box key={empresa.nome} sx={{ mb: 2, p: 2, borderRadius: 2, bgcolor: 'rgba(255,255,255,0.03)' }}>
-                        <Typography variant="body1" sx={{ fontWeight: 500, mb: 1 }}>
-                          {empresa.nome}
-                        </Typography>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                          <Typography variant="body2" color="text.secondary">
-                            Aulas: {empresa.totalAulas}
-                          </Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            Presenças: {empresa.totalPresencas}
-                          </Typography>
-                        </Box>
-                        <LinearProgress
-                          variant="determinate"
-                          value={Math.min(100, (empresa.totalPresencas / Math.max(empresa.totalAulas * 10, 1)) * 100)}
-                          sx={{
-                            height: 6,
-                            borderRadius: 3,
-                            bgcolor: 'rgba(255,255,255,0.1)',
-                            '& .MuiLinearProgress-bar': {
-                              bgcolor: '#1890FF',
-                              borderRadius: 3,
-                            },
-                          }}
-                        />
-                      </Box>
-                    ))
-                  ) : (
-                    <Box sx={{ textAlign: 'center', py: 4 }}>
-                      <Warning sx={{ fontSize: 48, mb: 2, opacity: 0.5, color: 'text.secondary' }} />
-                      <Typography color="text.secondary">
-                        Nenhuma empresa encontrada
-                      </Typography>
-                    </Box>
-                  )}
+            <Card sx={{ height: 400, borderRadius: 2 }}>
+              <CardContent sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                <Typography variant="h6" gutterBottom sx={{ fontWeight: 600, mb: 2 }}>
+                  Resumo Rápido
+                </Typography>
+                <Box 
+                  sx={{ 
+                    flex: 1,
+                    overflowY: 'auto',
+                    pr: 1, // padding right para dar espaço para o scrollbar
+                    '&::-webkit-scrollbar': {
+                      width: '6px',
+                    },
+                    '&::-webkit-scrollbar-track': {
+                      background: 'rgba(255,255,255,0.1)',
+                      borderRadius: '3px',
+                    },
+                    '&::-webkit-scrollbar-thumb': {
+                      background: 'rgba(255,255,255,0.3)',
+                      borderRadius: '3px',
+                      '&:hover': {
+                        background: 'rgba(255,255,255,0.4)',
+                      },
+                    },
+                  }}
+                >
+                  <Box sx={{ p: 3, borderRadius: 2, bgcolor: 'rgba(16, 185, 129, 0.1)', mb: 2 }}>
+                    <Typography variant="h4" sx={{ color: '#10B981', fontWeight: 700, mb: 1 }}>
+                      {aulas.length > 0 ?
+                        `${Math.round((aulas.filter(a => parseInt(a.num_presencas) > 5).length / aulas.length) * 100)}%` 
+                        : '0%'
+                      }
+                    </Typography>
+                    <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                      das aulas tiveram boa participação (acima de 5 pessoas)
+                    </Typography>
+                  </Box>
+                  
+                  <Box sx={{ p: 3, borderRadius: 2, bgcolor: 'rgba(139, 92, 246, 0.1)', mb: 2 }}>
+                    <Typography variant="h4" sx={{ color: '#8B5CF6', fontWeight: 700, mb: 1 }}>
+                      {stats?.totalAulas > 0 && chartData.length > 0 ? 
+                        Math.round(stats.totalAulas / chartData.length) 
+                        : 0
+                      }
+                    </Typography>
+                    <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                      aulas realizadas por mês em média
+                    </Typography>
+                  </Box>
+
+                  <Box sx={{ p: 3, borderRadius: 2, bgcolor: 'rgba(245, 158, 11, 0.1)' }}>
+                    <Typography variant="h4" sx={{ color: '#F59E0B', fontWeight: 700, mb: 1 }}>
+                      {stats?.mediaParticipantes || '0.0'}
+                    </Typography>
+                    <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                      participantes por aula em média
+                    </Typography>
+                  </Box>
                 </Box>
               </CardContent>
             </Card>
@@ -471,7 +473,7 @@ function Dashboard() {
         {/* Gráfico de Aulas por Mês */}
         <Grow in={true} timeout={1400}>
           <Grid item xs={12} lg={6}>
-            <Card sx={{ height: 350 }}>
+            <Card sx={{ height: 350, borderRadius: 2 }}>
               <CardContent>
                 <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
                   <AccessTime sx={{ mr: 1, color: 'primary.main' }} />
@@ -525,43 +527,66 @@ function Dashboard() {
           </Grid>
         </Grow>
 
-        {/* Card de Resumo Rápido */}
-        <Grow in={true} timeout={1600}>
+        {/* Informações sobre Funcionários */}
+        <Grow in={true} timeout={1200}>
           <Grid item xs={12} lg={6}>
-            <Card sx={{ height: 350 }}>
+            <Card sx={{ height: 350, borderRadius: 2 }}>
               <CardContent>
-                <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
-                  Resumo Rápido
-                </Typography>
-                <Box sx={{ mt: 3 }}>
-                  <Box sx={{ p: 3, borderRadius: 2, bgcolor: 'rgba(16, 185, 129, 0.1)', mb: 2 }}>
-                    <Typography variant="h4" sx={{ color: '#10B981', fontWeight: 700, mb: 1 }}>
-                      {aulas.length > 0 ? 
-                        `${Math.round((aulas.filter(a => parseInt(a.num_presencas) > 5).length / aulas.length) * 100)}%` 
-                        : '0%'
-                      }
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+                  <People sx={{ mr: 1, color: 'primary.main' }} />
+                  <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                    Informações de Participação
+                  </Typography>
+                </Box>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Typography variant="body2" color="text.secondary">
+                      Funcionários Cadastrados
                     </Typography>
-                    <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                      das aulas tiveram boa participação (acima de 5 pessoas)
-                    </Typography>
-                  </Box>
-                  <Box sx={{ p: 3, borderRadius: 2, bgcolor: 'rgba(59, 130, 246, 0.1)', mb: 2 }}>
-                    <Typography variant="h4" sx={{ color: '#3B82F6', fontWeight: 700, mb: 1 }}>
-                      {empresasData.length}
-                    </Typography>
-                    <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                      empresas sendo atendidas atualmente
+                    <Typography variant="h5" sx={{ fontWeight: 600 }}>
+                      {stats?.totalFuncionarios || 0}
                     </Typography>
                   </Box>
-                  <Box sx={{ p: 3, borderRadius: 2, bgcolor: 'rgba(139, 92, 246, 0.1)' }}>
-                    <Typography variant="h4" sx={{ color: '#8B5CF6', fontWeight: 700, mb: 1 }}>
-                      {stats?.totalAulas > 0 && chartData.length > 0 ? 
-                        Math.round(stats.totalAulas / chartData.length) 
-                        : 0
-                      }
+
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Typography variant="body2" color="text.secondary">
+                      Funcionários Ativos
                     </Typography>
-                    <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                      aulas realizadas por mês em média
+                    <Typography variant="h5" sx={{ fontWeight: 600, color: '#10B981' }}>
+                      {stats?.funcionariosUnicos || 0}
+                    </Typography>
+                  </Box>
+
+                  <Box>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                      <Typography variant="body2" color="text.secondary">
+                        Taxa de Engajamento
+                      </Typography>
+                      <Typography variant="h5" sx={{ fontWeight: 600, color: '#3B82F6' }}>
+                        {stats?.taxaEngajamento || 0}%
+                      </Typography>
+                    </Box>
+                    <LinearProgress
+                      variant="determinate"
+                      value={stats?.taxaEngajamento || 0}
+                      sx={{
+                        height: 8,
+                        borderRadius: 4,
+                        bgcolor: 'rgba(255,255,255,0.1)',
+                        '& .MuiLinearProgress-bar': {
+                          bgcolor: '#3B82F6',
+                          borderRadius: 4,
+                        },
+                      }}
+                    />
+                  </Box>
+
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Typography variant="body2" color="text.secondary">
+                      Total de Participações
+                    </Typography>
+                    <Typography variant="h5" sx={{ fontWeight: 600, color: '#8B5CF6' }}>
+                      {stats?.totalPresencas || 0}
                     </Typography>
                   </Box>
                 </Box>
