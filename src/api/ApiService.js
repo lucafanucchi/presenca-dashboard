@@ -9,24 +9,22 @@ const apiClient = axios.create({
 });
 
 // ========================================================================
-// IMPORTANTE: Este ApiService é APENAS para o DASHBOARD WEB
-// Usado pelo RH da BASF, Nestlé, etc. (clientes finais)
-// 
-// O APP MOBILE dos professores usa endpoints diferentes:
-// - APP: X-Professor-Id → /aulas (POST)
-// - WEB: X-Empresa-Cliente-Id → /cliente/* (GET)
+// INTERCEPTOR DE AUTENTICAÇÃO JWT
+// Adiciona automaticamente o token Bearer em todas as requisições
 // ========================================================================
 
-// Interceptor para identificar qual EMPRESA CLIENTE está acessando o dashboard
-// Por enquanto fixo como BASF (ID 1), depois virá do sistema de login
 apiClient.interceptors.request.use(config => {
-  // Header que identifica a empresa cliente (BASF, Nestlé, etc.)
-  config.headers['X-Empresa-Cliente-Id'] = '1'; // BASF
+  // Pegar token do localStorage
+  const token = localStorage.getItem('auth_token');
+  
+  if (token) {
+    config.headers['Authorization'] = `Bearer ${token}`;
+  }
   
   return config;
 });
 
-// Tratamento de erros focado no cliente final
+// Interceptor para tratamento de erros com redirecionamento de login
 apiClient.interceptors.response.use(
   response => response,
   error => {
@@ -34,15 +32,23 @@ apiClient.interceptors.response.use(
     
     if (error.response) {
       const { status, data } = error.response;
+      
       switch (status) {
         case 401:
-          console.error('Acesso negado - empresa não autorizada');
+          // Token inválido ou expirado - fazer logout automático
+          console.error('Token inválido - fazendo logout...');
+          localStorage.removeItem('auth_token');
+          localStorage.removeItem('user_data');
+          window.location.reload(); // Recarregar para mostrar tela de login
+          break;
+        case 403:
+          console.error('Acesso negado para este recurso');
           break;
         case 404:
-          console.error('Dados não encontrados para sua empresa');
+          console.error('Recurso não encontrado');
           break;
         case 500:
-          console.error('Erro no servidor - contate o suporte');
+          console.error('Erro interno do servidor');
           break;
         default:
           console.error('Erro:', status, data);
@@ -58,36 +64,60 @@ apiClient.interceptors.response.use(
 );
 
 // ========================================================================
-// FUNÇÕES PARA O DASHBOARD WEB (Cliente Final - BASF, Nestlé, etc.)
-// Todas mostram dados APENAS da empresa que está logada
+// FUNÇÕES DE AUTENTICAÇÃO
 // ========================================================================
 
 /**
- * Busca estatísticas de engajamento da empresa cliente
- * Retorna: total de aulas, participações, funcionários ativos, etc.
+ * Fazer login
+ * @param {string} email 
+ * @param {string} senha 
+ */
+export const login = (email, senha) => {
+  return apiClient.post('/auth/login', { email, senha });
+};
+
+/**
+ * Verificar se o token atual ainda é válido
+ */
+export const verifyToken = () => {
+  return apiClient.get('/auth/me');
+};
+
+/**
+ * Fazer logout
+ */
+export const logout = () => {
+  return apiClient.post('/auth/logout');
+};
+
+// ========================================================================
+// FUNÇÕES PARA CLIENTES FINAIS (BASF, Nestlé, etc.)
+// Automaticamente autenticadas via JWT
+// ========================================================================
+
+/**
+ * Busca estatísticas de engajamento da empresa do usuário logado
  */
 export const getDashboardStats = () => {
   return apiClient.get('/cliente/stats');
 };
 
 /**
- * Busca histórico de aulas realizadas para a empresa cliente  
- * Retorna: lista de aulas com data, professor, número de participantes
+ * Busca histórico de aulas da empresa do usuário logado
  */
 export const getAulas = () => {
   return apiClient.get('/cliente/aulas');
 };
 
 /**
- * Busca funcionários da empresa cliente e suas participações
- * Retorna: lista de funcionários com estatísticas de presença
+ * Busca funcionários da empresa do usuário logado
  */
 export const getFuncionarios = () => {
   return apiClient.get('/cliente/funcionarios');
 };
 
 /**
- * Busca relatórios mensais de engajamento
+ * Busca relatórios mensais
  * @param {string} periodo - Número de meses (ex: '6', '12')
  */
 export const getRelatorios = (periodo = '6') => {
@@ -95,22 +125,62 @@ export const getRelatorios = (periodo = '6') => {
 };
 
 /**
- * Busca dados para gráfico de evolução temporal
- */
-export const getEvolutionData = () => {
-  return apiClient.get('/cliente/evolucao');
-};
-
-/**
- * Exporta relatório em PDF ou CSV
+ * Exporta relatório
  * @param {string} formato - 'pdf' ou 'csv'
  * @param {string} tipo - 'geral', 'funcionarios', 'aulas'
  */
 export const exportarRelatorio = (formato, tipo) => {
   return apiClient.get(`/cliente/export/${tipo}?format=${formato}`, {
-    responseType: 'blob' // Para download de arquivo
+    responseType: 'blob'
   });
 };
+
+// ========================================================================
+// FUNÇÕES ADMINISTRATIVAS (apenas para admins)
+// ========================================================================
+
+/**
+ * Busca todos os usuários do sistema (admin only)
+ */
+export const getUsuarios = () => {
+  return apiClient.get('/admin/usuarios');
+};
+
+/**
+ * Busca estatísticas gerais do sistema (admin only)
+ */
+export const getAdminStats = () => {
+  return apiClient.get('/admin/stats');
+};
+
+/**
+ * Criar novo usuário (admin only)
+ * @param {Object} userData - Dados do usuário
+ */
+export const criarUsuario = (userData) => {
+  return apiClient.post('/admin/usuarios', userData);
+};
+
+/**
+ * Atualizar usuário (admin only)
+ * @param {number} id - ID do usuário
+ * @param {Object} userData - Dados atualizados
+ */
+export const atualizarUsuario = (id, userData) => {
+  return apiClient.put(`/admin/usuarios/${id}`, userData);
+};
+
+/**
+ * Desativar usuário (admin only)
+ * @param {number} id - ID do usuário
+ */
+export const desativarUsuario = (id) => {
+  return apiClient.patch(`/admin/usuarios/${id}/desativar`);
+};
+
+// ========================================================================
+// FUNÇÕES UTILITÁRIAS
+// ========================================================================
 
 /**
  * Verifica se a API está funcionando
@@ -120,15 +190,17 @@ export const checkApiStatus = () => {
 };
 
 /**
- * Formata mensagens de erro para exibição amigável ao cliente
+ * Formata erros da API para exibição
  */
 export const formatApiError = (error) => {
   if (error.response?.status === 401) {
-    return 'Acesso não autorizado. Entre em contato com o suporte.';
+    return 'Sessão expirada. Faça login novamente.';
+  } else if (error.response?.status === 403) {
+    return 'Acesso negado para este recurso.';
   } else if (error.response?.status === 404) {
-    return 'Dados não encontrados para sua empresa.';
+    return 'Recurso não encontrado.';
   } else if (error.response?.status === 500) {
-    return 'Erro interno. Nosso time foi notificado.';
+    return 'Erro interno do servidor.';
   } else if (error.response?.data?.error) {
     return error.response.data.error;
   } else if (error.request) {
@@ -139,12 +211,32 @@ export const formatApiError = (error) => {
 };
 
 /**
- * Informações sobre qual empresa está logada (para debug)
+ * Pega informações do usuário logado do localStorage
  */
-export const getEmpresaInfo = () => {
-  return {
-    id: 1,
-    nome: 'BASF', // Depois virá da API de autenticação
-    tipo: 'cliente_final'
-  };
+export const getCurrentUser = () => {
+  try {
+    const userData = localStorage.getItem('user_data');
+    return userData ? JSON.parse(userData) : null;
+  } catch (error) {
+    console.error('Erro ao pegar dados do usuário:', error);
+    return null;
+  }
 };
+
+/**
+ * Verifica se o usuário atual é admin
+ */
+export const isCurrentUserAdmin = () => {
+  const user = getCurrentUser();
+  return user?.tipo_usuario === 'admin';
+};
+
+/**
+ * Verifica se o usuário atual é cliente final
+ */
+export const isCurrentUserCliente = () => {
+  const user = getCurrentUser();
+  return user?.tipo_usuario === 'cliente_final';
+};
+
+export default apiClient;

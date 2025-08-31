@@ -19,6 +19,7 @@ import {
   Fade,
   useMediaQuery,
   useTheme,
+  Chip,
 } from '@mui/material';
 import {
   Dashboard,
@@ -29,8 +30,11 @@ import {
   Logout,
   Menu as MenuIcon,
   KeyboardArrowDown,
+  AdminPanelSettings,
+  Business,
 } from '@mui/icons-material';
 import { Link as RouterLink, useLocation } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 
 const drawerWidth = 280;
 
@@ -40,12 +44,31 @@ function AppLayout({ children }) {
   const location = useLocation();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('lg'));
+  const { user, logout, isAdmin, isCliente } = useAuth();
 
-  const menuItems = [
-    { text: 'Dashboard', path: '/', icon: Dashboard },
-    { text: 'Aulas', path: '/aulas', icon: School },
-    { text: 'Funcionários', path: '/funcionarios', icon: People },
-  ];
+  // Menu items baseado no tipo de usuário
+  const getMenuItems = () => {
+    const items = [
+      { text: 'Dashboard', path: '/dashboard', icon: Dashboard },
+      { text: 'Aulas', path: '/aulas', icon: School },
+    ];
+
+    // Adicionar itens específicos por tipo de usuário
+    if (isCliente()) {
+      items.push({ text: 'Funcionários', path: '/funcionarios', icon: People });
+    }
+
+    if (isAdmin()) {
+      items.push(
+        { text: 'Usuários', path: '/admin/usuarios', icon: People },
+        { text: 'Empresas', path: '/admin/empresas', icon: Business }
+      );
+    }
+
+    return items;
+  };
+
+  const menuItems = getMenuItems();
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
@@ -57,6 +80,42 @@ function AppLayout({ children }) {
 
   const handleUserMenuClose = () => {
     setUserMenuAnchor(null);
+  };
+
+  const handleLogout = () => {
+    handleUserMenuClose();
+    logout();
+  };
+
+  const getUserTypeChip = () => {
+    if (isAdmin()) {
+      return (
+        <Chip
+          label="Admin"
+          size="small"
+          icon={<AdminPanelSettings sx={{ fontSize: '16px !important' }} />}
+          sx={{
+            bgcolor: 'rgba(139, 92, 246, 0.2)',
+            color: '#8B5CF6',
+            fontSize: '0.75rem',
+          }}
+        />
+      );
+    } else if (isCliente()) {
+      return (
+        <Chip
+          label={user?.nome_empresa || 'Cliente'}
+          size="small"
+          icon={<Business sx={{ fontSize: '16px !important' }} />}
+          sx={{
+            bgcolor: 'rgba(24, 144, 255, 0.2)',
+            color: '#1890FF',
+            fontSize: '0.75rem',
+          }}
+        />
+      );
+    }
+    return null;
   };
 
   const drawer = (
@@ -80,7 +139,7 @@ function AppLayout({ children }) {
               Digital Six
             </Typography>
             <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.8rem' }}>
-              Presença Dashboard
+              Gestão de Presença
             </Typography>
           </Box>
         </Box>
@@ -145,7 +204,8 @@ function AppLayout({ children }) {
         <Box
           sx={{
             display: 'flex',
-            alignItems: 'center',
+            flexDirection: 'column',
+            gap: 1,
             p: 2,
             borderRadius: 2,
             bgcolor: 'rgba(255,255,255,0.03)',
@@ -157,26 +217,33 @@ function AppLayout({ children }) {
           }}
           onClick={handleUserMenuOpen}
         >
-          <Avatar
-            sx={{
-              width: 36,
-              height: 36,
-              bgcolor: 'primary.main',
-              mr: 2,
-            }}
-            src="/avatar-placeholder.jpg"
-          >
-            PJ
-          </Avatar>
-          <Box sx={{ flexGrow: 1 }}>
-            <Typography variant="body2" sx={{ fontWeight: 500 }}>
-              Prof. João
-            </Typography>
-            <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-              Professor
-            </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Avatar
+              sx={{
+                width: 36,
+                height: 36,
+                bgcolor: isAdmin() ? 'secondary.main' : 'primary.main',
+                fontSize: '0.9rem',
+                fontWeight: 'bold',
+              }}
+            >
+              {user?.nome?.charAt(0) || 'U'}
+            </Avatar>
+            <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+              <Typography variant="body2" sx={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {user?.nome || 'Usuário'}
+              </Typography>
+              <Typography variant="caption" sx={{ color: 'text.secondary', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {user?.email}
+              </Typography>
+            </Box>
+            <KeyboardArrowDown sx={{ color: 'text.secondary' }} />
           </Box>
-          <KeyboardArrowDown sx={{ color: 'text.secondary' }} />
+          {getUserTypeChip() && (
+            <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+              {getUserTypeChip()}
+            </Box>
+          )}
         </Box>
       </Box>
     </Box>
@@ -242,17 +309,25 @@ function AppLayout({ children }) {
               sx={{
                 width: 32,
                 height: 32,
-                bgcolor: 'primary.main',
+                bgcolor: isAdmin() ? 'secondary.main' : 'primary.main',
                 mr: 1,
+                fontSize: '0.8rem',
+                fontWeight: 'bold',
               }}
-              src="/avatar-placeholder.jpg"
             >
-              PJ
+              {user?.nome?.charAt(0) || 'U'}
             </Avatar>
             {!isMobile && (
-              <Typography variant="body2" sx={{ mr: 1 }}>
-                Prof. João
-              </Typography>
+              <Box sx={{ mr: 1 }}>
+                <Typography variant="body2" sx={{ fontSize: '0.9rem' }}>
+                  {user?.nome?.split(' ')[0] || 'Usuário'}
+                </Typography>
+                {getUserTypeChip() && (
+                  <Box sx={{ mt: 0.5 }}>
+                    {getUserTypeChip()}
+                  </Box>
+                )}
+              </Box>
             )}
             <KeyboardArrowDown />
           </Box>
@@ -317,13 +392,27 @@ function AppLayout({ children }) {
           },
         }}
       >
+        {/* User Info Header */}
+        <Box sx={{ p: 2, borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+          <Typography variant="body2" sx={{ fontWeight: 600 }}>
+            {user?.nome}
+          </Typography>
+          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+            {user?.email}
+          </Typography>
+          <Box sx={{ mt: 1 }}>
+            {getUserTypeChip()}
+          </Box>
+        </Box>
+
         <MenuItem onClick={handleUserMenuClose}>
           <ListItemIcon>
             <Settings fontSize="small" />
           </ListItemIcon>
           <ListItemText>Configurações</ListItemText>
         </MenuItem>
-        <MenuItem onClick={handleUserMenuClose}>
+        
+        <MenuItem onClick={handleLogout}>
           <ListItemIcon>
             <Logout fontSize="small" />
           </ListItemIcon>
