@@ -10,11 +10,15 @@ import {
   Container,
   Fade,
   Avatar,
-  Chip,
   LinearProgress,
   Alert,
   Button,
   Snackbar,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  Chip,
 } from '@mui/material';
 import {
   TrendingUp,
@@ -27,8 +31,24 @@ import {
   Refresh,
   Warning,
 } from '@mui/icons-material';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, BarChart, Bar } from 'recharts';
-import { getDashboardStats, getAulas, formatApiError } from '../api/ApiService';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell } from 'recharts';
+import { getDashboardStats, getAulas, getFuncionarios, formatApiError } from '../api/ApiService';
+
+// Cores para o gráfico de pizza
+const CHART_COLORS = [
+  '#1890FF', // Azul
+  '#10B981', // Verde
+  '#F59E0B', // Amarelo
+  '#EF4444', // Vermelho
+  '#8B5CF6', // Roxo
+  '#06B6D4', // Ciano
+  '#84CC16', // Lima
+  '#F97316'  // Laranja
+];
+
+const getColorForIndex = (index) => {
+  return CHART_COLORS[index % CHART_COLORS.length];
+};
 
 function StatCard({ title, value, subtitle, icon: Icon, trend, delay = 0, gradient, isLoading = false }) {
   if (isLoading) {
@@ -124,6 +144,12 @@ function Dashboard() {
   // Estados derivados dos dados reais
   const [chartData, setChartData] = useState([]);
   const [empresasData, setEmpresasData] = useState([]);
+  const [departmentData, setDepartmentData] = useState([]);
+
+  // Estados para filtros
+  const [selectedDepartment, setSelectedDepartment] = useState('todos');
+  const [selectedPeriod, setSelectedPeriod] = useState('6'); // últimos 6 meses
+  const [availableDepartments, setAvailableDepartments] = useState([]);
 
   const fetchDashboardData = async () => {
     setLoading(true);
@@ -157,6 +183,7 @@ function Dashboard() {
       // Processar dados para gráficos
       processChartData(aulasData);
       processEmpresasData(aulasData);
+      processDepartmentData(statsData);
 
       setSnackbar({
         open: true,
@@ -224,9 +251,76 @@ function Dashboard() {
     setEmpresasData(Object.values(empresas));
   };
 
+  const processDepartmentData = async (statsData) => {
+    try {
+      // Buscar dados dos funcionários para análise por cargo/departamento
+      const funcionariosResponse = await getFuncionarios();
+      const funcionariosData = funcionariosResponse.data;
+      
+      // Extrair lista de departamentos únicos para os filtros
+      const departamentos = [...new Set(funcionariosData.map(f => f.cargo).filter(Boolean))].sort();
+      setAvailableDepartments(departamentos);
+      
+      // Filtrar por departamento se selecionado
+      const filteredFuncionarios = selectedDepartment === 'todos' 
+        ? funcionariosData 
+        : funcionariosData.filter(f => f.cargo === selectedDepartment);
+      
+      // Agrupar por cargo e contar participações
+      const departmentStats = {};
+      
+      filteredFuncionarios.forEach(funcionario => {
+        const cargo = funcionario.cargo || 'Não informado';
+        const participacoes = parseInt(funcionario.total_presencas) || 0;
+        
+        if (!departmentStats[cargo]) {
+          departmentStats[cargo] = {
+            nome: cargo,
+            funcionarios: 0,
+            participacoes: 0
+          };
+        }
+        
+        departmentStats[cargo].funcionarios += 1;
+        departmentStats[cargo].participacoes += participacoes;
+      });
+
+      // Converter para array e ordenar por participações
+      let departmentArray = Object.values(departmentStats)
+        .sort((a, b) => b.participacoes - a.participacoes)
+        .filter(dept => dept.participacoes > 0); // Só departamentos com participações
+
+      // Se visualizando todos os departamentos e tiver mais de 6, agrupar os menores em "Outros"
+      if (selectedDepartment === 'todos' && departmentArray.length > 6) {
+        const top5 = departmentArray.slice(0, 5);
+        const others = departmentArray.slice(5);
+        
+        const outrosTotal = others.reduce((sum, dept) => ({
+          nome: 'Outros',
+          funcionarios: sum.funcionarios + dept.funcionarios,
+          participacoes: sum.participacoes + dept.participacoes
+        }), { nome: 'Outros', funcionarios: 0, participacoes: 0 });
+        
+        departmentArray = [...top5, outrosTotal];
+      }
+
+      setDepartmentData(departmentArray);
+    } catch (error) {
+      console.error('Erro ao processar dados de departamento:', error);
+      setDepartmentData([]);
+    }
+  };
+
   useEffect(() => {
     fetchDashboardData();
   }, []);
+
+  // Reagir às mudanças nos filtros
+  useEffect(() => {
+    if (stats && aulas.length > 0) {
+      processDepartmentData(stats);
+    }
+  }, [selectedDepartment, selectedPeriod, stats, aulas]);
 
   const handleRefresh = () => {
     fetchDashboardData();
@@ -300,6 +394,70 @@ function Dashboard() {
         </Box>
       </Fade>
 
+      {/* Área de Filtros */}
+      <Fade in={true} timeout={1000}>
+        <Card sx={{ mb: 3, borderRadius: 2 }}>
+          <CardContent sx={{ py: 2 }}>
+            <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+              <Typography variant="subtitle2" sx={{ color: 'text.secondary', minWidth: 60 }}>
+                Filtros:
+              </Typography>
+              
+              <FormControl size="small" sx={{ minWidth: 120 }}>
+                <InputLabel>Período</InputLabel>
+                <Select
+                  value={selectedPeriod}
+                  label="Período"
+                  onChange={(e) => setSelectedPeriod(e.target.value)}
+                  sx={{ borderRadius: 2 }}
+                >
+                  <MenuItem value="3">Últimos 3 meses</MenuItem>
+                  <MenuItem value="6">Últimos 6 meses</MenuItem>
+                  <MenuItem value="12">Últimos 12 meses</MenuItem>
+                  <MenuItem value="24">Últimos 2 anos</MenuItem>
+                </Select>
+              </FormControl>
+
+              <FormControl size="small" sx={{ minWidth: 180 }}>
+                <InputLabel>Departamento</InputLabel>
+                <Select
+                  value={selectedDepartment}
+                  label="Departamento"
+                  onChange={(e) => setSelectedDepartment(e.target.value)}
+                  sx={{ borderRadius: 2 }}
+                >
+                  <MenuItem value="todos">Todos os Departamentos</MenuItem>
+                  {availableDepartments.map((dept) => (
+                    <MenuItem key={dept} value={dept}>
+                      {dept}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              {(selectedDepartment !== 'todos' || selectedPeriod !== '6') && (
+                <Chip
+                  label="Limpar Filtros"
+                  variant="outlined"
+                  size="small"
+                  onClick={() => {
+                    setSelectedDepartment('todos');
+                    setSelectedPeriod('6');
+                  }}
+                  sx={{ 
+                    borderColor: 'primary.main', 
+                    color: 'primary.main',
+                    '&:hover': {
+                      bgcolor: 'rgba(24, 144, 255, 0.1)'
+                    }
+                  }}
+                />
+              )}
+            </Box>
+          </CardContent>
+        </Card>
+      </Fade>
+
       <Grid container spacing={3}>
         <StatCard
           title="Aulas Realizadas"
@@ -338,7 +496,7 @@ function Dashboard() {
 
         {/* Gráfico de Evolução */}
         <Grow in={true} timeout={1000}>
-          <Grid item xs={12} lg={8}>
+          <Grid item xs={12} lg={6}>
             <Card sx={{ height: 400, borderRadius: 2 }}>
               <CardContent sx={{ height: '100%' }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
@@ -396,6 +554,133 @@ function Dashboard() {
                   }}>
                     <Warning sx={{ fontSize: 48, mb: 2, opacity: 0.5 }} />
                     <Typography>Não há dados suficientes para exibir o gráfico</Typography>
+                  </Box>
+                )}
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grow>
+
+        {/* Gráfico de Participação por Departamento - NOVO */}
+        <Grow in={true} timeout={1100}>
+          <Grid item xs={12} lg={6}>
+            <Card sx={{ height: 400, borderRadius: 2 }}>
+              <CardContent sx={{ height: '100%' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+                  <People sx={{ mr: 1, color: 'primary.main' }} />
+                  <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                    Participação por Departamento
+                  </Typography>
+                </Box>
+                {departmentData.length > 0 ? (
+                  <Box sx={{ display: 'flex', height: 300 }}>
+                    <Box sx={{ flex: 1 }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={departmentData}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={40}
+                            outerRadius={80}
+                            paddingAngle={2}
+                            dataKey="participacoes"
+                          >
+                            {departmentData.map((entry, index) => (
+                              <Cell 
+                                key={`cell-${index}`} 
+                                fill={getColorForIndex(index)}
+                              />
+                            ))}
+                          </Pie>
+                          <Tooltip 
+                            contentStyle={{
+                              backgroundColor: '#1A1A1D',
+                              border: '1px solid rgba(255,255,255,0.1)',
+                              borderRadius: '12px',
+                              boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+                              color: '#FFFFFF'
+                            }}
+                            labelStyle={{ color: '#FFFFFF' }}
+                            formatter={(value, name, props) => [
+                              `${value} participações`,
+                              props.payload.nome
+                            ]}
+                          />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </Box>
+                    <Box sx={{ 
+                      width: 140, 
+                      display: 'flex', 
+                      flexDirection: 'column', 
+                      justifyContent: 'flex-start',
+                      maxHeight: 280,
+                      overflowY: 'auto',
+                      pr: 1,
+                      '&::-webkit-scrollbar': {
+                        width: '4px',
+                      },
+                      '&::-webkit-scrollbar-track': {
+                        background: 'rgba(255,255,255,0.1)',
+                        borderRadius: '2px',
+                      },
+                      '&::-webkit-scrollbar-thumb': {
+                        background: 'rgba(255,255,255,0.3)',
+                        borderRadius: '2px',
+                        '&:hover': {
+                          background: 'rgba(255,255,255,0.4)',
+                        },
+                      },
+                    }}>
+                      {departmentData.map((dept, index) => (
+                        <Box key={dept.nome} sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                          <Box 
+                            sx={{ 
+                              width: 12, 
+                              height: 12, 
+                              backgroundColor: getColorForIndex(index),
+                              borderRadius: '50%',
+                              mr: 1
+                            }} 
+                          />
+                          <Box sx={{ flex: 1 }}>
+                            <Typography 
+                              variant="caption" 
+                              sx={{ 
+                                color: 'text.primary',
+                                fontSize: '0.7rem',
+                                lineHeight: 1.2,
+                                display: 'block'
+                              }}
+                            >
+                              {dept.nome.length > 15 ? `${dept.nome.substring(0, 15)}...` : dept.nome}
+                            </Typography>
+                            <Typography 
+                              variant="caption" 
+                              sx={{ 
+                                color: 'text.secondary',
+                                fontSize: '0.65rem'
+                              }}
+                            >
+                              {dept.participacoes}
+                            </Typography>
+                          </Box>
+                        </Box>
+                      ))}
+                    </Box>
+                  </Box>
+                ) : (
+                  <Box sx={{ 
+                    display: 'flex', 
+                    flexDirection: 'column',
+                    alignItems: 'center', 
+                    justifyContent: 'center', 
+                    height: 300,
+                    color: 'text.secondary'
+                  }}>
+                    <Warning sx={{ fontSize: 48, mb: 2, opacity: 0.5 }} />
+                    <Typography>Carregando dados dos departamentos...</Typography>
                   </Box>
                 )}
               </CardContent>

@@ -179,8 +179,8 @@ function Funcionarios() {
     setSelectedFuncionario(null);
   };
 
-  // Obter lista única de unidades para o filtro
-  const unidades = [...new Set(funcionarios.map(f => f.unidade).filter(Boolean))];
+  // Obter lista única de unidades para o filtro (filtrando valores vazios/nulos)
+  const unidades = [...new Set(funcionarios.map(f => f.unidade).filter(Boolean))].sort();
 
   // Colunas da tabela
   const columns = [

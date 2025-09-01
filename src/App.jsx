@@ -6,6 +6,7 @@ import Login from './pages/Login';
 import AppLayout from './components/AppLayout';
 import Dashboard from './pages/Dashboard';
 import Aulas from './pages/Aulas';
+import Funcionarios from './pages/Funcionarios';
 import LoadingSpinner from './components/LoadingSpinner';
 
 import { ThemeProvider } from '@mui/material/styles';
@@ -147,7 +148,7 @@ const AuthenticatedApp = () => {
     // Rotas específicas para clientes finais
     if (user?.tipo_usuario === 'cliente_final') {
       // Adicionar rota de funcionários para clientes
-      // routes.push(<Route key="funcionarios" path="/funcionarios" element={<Funcionarios />} />);
+      routes.push(<Route key="funcionarios" path="/funcionarios" element={<Funcionarios />} />);
     }
 
     // Rotas específicas para admins
