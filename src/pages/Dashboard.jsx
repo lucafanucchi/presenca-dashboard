@@ -19,6 +19,11 @@ import {
   Select,
   MenuItem,
   Chip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Divider,
 } from '@mui/material';
 import {
   TrendingUp,
@@ -30,9 +35,20 @@ import {
   Business,
   Refresh,
   Warning,
+  Star,
+  Timeline,
+  TrendingDown,
+  TrendingFlat,
+  ExpandMore,
+  ExpandLess,
+  FilterList,
+  GetApp,
+  PictureAsPdf,
+  TableChart,
 } from '@mui/icons-material';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell } from 'recharts';
-import { getDashboardStats, getAulas, getFuncionarios, formatApiError } from '../api/ApiService';
+import { getDashboardStats, getAulas, getFuncionarios, formatApiError, exportarRelatorio } from '../api/ApiService';
+import Funcionarios from './Funcionarios';
 
 // Cores para o gráfico de pizza
 const CHART_COLORS = [
@@ -75,7 +91,7 @@ function StatCard({ title, value, subtitle, icon: Icon, trend, delay = 0, gradie
             background: gradient || 'linear-gradient(135deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%)',
             border: '1px solid rgba(255,255,255,0.1)',
             borderRadius: 2,
-            overflow: 'hidden', // Mudança aqui: de 'visible' para 'hidden' para evitar bugs de borda
+            overflow: 'hidden',
             '&::before': {
               content: '""',
               position: 'absolute',
@@ -84,21 +100,21 @@ function StatCard({ title, value, subtitle, icon: Icon, trend, delay = 0, gradie
               right: 0,
               height: '4px',
               background: gradient || 'linear-gradient(90deg, #1890FF, #8B5CF6)',
-              borderRadius: 0, // Mudança aqui: remover border-radius da barra superior
+              borderRadius: 0,
             }
           }}
         >
           <CardContent>
             <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 2 }}>
               <Box>
-                <Typography variant="body2" sx={{ color: 'text.secondary', mb: 1, fontWeight: 500 }}>
+                <Typography variant="body2" sx={{ color: 'text.primary', mb: 1, fontWeight: 500 }}>
                   {title}
                 </Typography>
-                <Typography variant="h3" sx={{ fontWeight: 700, mb: 1 }}>
+                <Typography variant="h3" sx={{ fontWeight: 700, mb: 1, color: 'white' }}>
                   {value}
                 </Typography>
                 {subtitle && (
-                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                  <Typography variant="body2" sx={{ color: 'white' }}>
                     {subtitle}
                   </Typography>
                 )}
@@ -140,16 +156,25 @@ function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
+  const [selectedUnidade, setSelectedUnidade] = useState('todas');
+
 
   // Estados derivados dos dados reais
   const [chartData, setChartData] = useState([]);
   const [empresasData, setEmpresasData] = useState([]);
   const [departmentData, setDepartmentData] = useState([]);
+  const [aulasPopularesData, setAulasPopularesData] = useState([]);
+  const [timelineData, setTimelineData] = useState([]);
 
-  // Estados para filtros
+  // Estados para filtros locais
   const [selectedDepartment, setSelectedDepartment] = useState('todos');
-  const [selectedPeriod, setSelectedPeriod] = useState('6'); // últimos 6 meses
+  const [selectedPeriod, setSelectedPeriod] = useState('6');
   const [availableDepartments, setAvailableDepartments] = useState([]);
+  const [selectedChartMetric, setSelectedChartMetric] = useState('presencas');
+  const [expandedCards, setExpandedCards] = useState({});
+  const [drilldownData, setDrilldownData] = useState(null);
+  const [funcionarios, setFuncionarios] = useState([]);
+  const [unidadesData, setUnidadesData] = useState([]);
 
   const fetchDashboardData = async () => {
     setLoading(true);
@@ -157,13 +182,17 @@ function Dashboard() {
 
     try {
       // Buscar estatísticas e aulas em paralelo
-      const [statsResponse, aulasResponse] = await Promise.all([
+      const [statsResponse, aulasResponse, funcionariosResponse] = await Promise.all([
         getDashboardStats(),
-        getAulas()
+        getAulas(),
+        getFuncionarios()
       ]);
 
       const statsData = statsResponse.data;
       const aulasData = aulasResponse.data;
+      const funcionariosData = funcionariosResponse.data;
+      setFuncionarios(funcionariosData) // ✅ Adicione esta linha  // ✅ Adicione esta linha
+  // ✅ Adicione esta linha
 
       // Processar dados das estatísticas
       setStats({
@@ -183,7 +212,10 @@ function Dashboard() {
       // Processar dados para gráficos
       processChartData(aulasData);
       processEmpresasData(aulasData);
+      processAulasPopulares(aulasData);
+      processTimeline(aulasData);
       processDepartmentData(statsData);
+      processUnidadesData(statsData);
 
       setSnackbar({
         open: true,
@@ -249,6 +281,171 @@ function Dashboard() {
     });
 
     setEmpresasData(Object.values(empresas));
+  };
+
+  const processUnidadesData = (statsData) => {
+  try {
+    //const funcionariosResponse = await getFuncionarios();
+    const funcionariosData = funcionarios;
+    
+    console.log('🔍 Dados dos funcionários:', funcionariosData); // Debug
+    
+    // Verificar se os funcionários têm unidade_planta preenchida
+    const funcionariosComUnidade = funcionariosData.filter(f => f.unidade_planta);
+    console.log('👥 Funcionários com unidade definida:', funcionariosComUnidade.length);
+    
+    // Agrupar funcionários por unidade_planta
+    const unidadeStats = {};
+    funcionariosData.forEach(funcionario => {
+      const unidade = funcionario.unidade || 'Principal';
+      console.log(`📍 Funcionário ${funcionario.nome_completo}: unidade = ${unidade}`); // Debug
+      
+      if (!unidadeStats[unidade]) {
+        unidadeStats[unidade] = {
+          nome: unidade,
+          funcionarios_total: 0,
+          participacoes_total: 0
+        };
+      }
+      
+      unidadeStats[unidade].funcionarios_total += 1;
+      unidadeStats[unidade].participacoes_total += parseInt(funcionario.total_presencas) || 0;
+    });
+
+    console.log('📊 Stats por unidade:', unidadeStats); // Debug
+
+    // Calcular taxa de participação e preparar dados para o gráfico
+    const unidadesArray = Object.values(unidadeStats).map(unidade => {
+      const denominador = unidade.funcionarios_total * (statsData.totalAulas || 1);
+      const taxa = denominador > 0 ? Math.round((unidade.participacoes_total / denominador) * 100) : 0;
+      
+      return {
+        unidade: unidade.nome,
+        participacoes: unidade.participacoes_total,
+        funcionarios: unidade.funcionarios_total,
+        taxa: taxa
+      };
+    }).sort((a, b) => b.participacoes - a.participacoes);
+
+    console.log('📈 Array final de unidades:', unidadesArray); // Debug
+    setUnidadesData(unidadesArray);
+    
+  } catch (error) {
+    console.error('Erro ao processar dados de unidades:', error);
+    setUnidadesData([]);
+  }
+  };
+
+
+  const processAulasPopulares = (aulasData) => {
+    const horariosData = {};
+    const tiposData = {};
+    
+    aulasData.forEach(aula => {
+      const date = new Date(aula.data_hora);
+      const hora = date.getHours();
+      const presencas = parseInt(aula.num_presencas) || 0;
+      
+      // Categorizar por horário
+      let periodoHora;
+      if (hora >= 6 && hora < 12) periodoHora = 'Manhã (6h-12h)';
+      else if (hora >= 12 && hora < 18) periodoHora = 'Tarde (12h-18h)';
+      else periodoHora = 'Noite (18h-6h)';
+      
+      if (!horariosData[periodoHora]) {
+        horariosData[periodoHora] = { 
+          periodo: periodoHora, 
+          aulas: 0, 
+          presencas: 0, 
+          mediaPresencas: 0 
+        };
+      }
+      horariosData[periodoHora].aulas += 1;
+      horariosData[periodoHora].presencas += presencas;
+      
+      // Categorizar por tipo (baseado na descrição)
+      const tipo = aula.descricao || 'Ginástica Geral';
+      if (!tiposData[tipo]) {
+        tiposData[tipo] = { 
+          tipo, 
+          aulas: 0, 
+          presencas: 0, 
+          mediaPresencas: 0 
+        };
+      }
+      tiposData[tipo].aulas += 1;
+      tiposData[tipo].presencas += presencas;
+    });
+    
+    // Calcular médias e ordenar
+    const horariosArray = Object.values(horariosData).map(item => ({
+      ...item,
+      mediaPresencas: item.aulas > 0 ? (item.presencas / item.aulas).toFixed(1) : 0
+    })).sort((a, b) => b.mediaPresencas - a.mediaPresencas);
+    
+    const tiposArray = Object.values(tiposData).map(item => ({
+      ...item,
+      mediaPresencas: item.aulas > 0 ? (item.presencas / item.aulas).toFixed(1) : 0
+    })).sort((a, b) => b.mediaPresencas - a.mediaPresencas).slice(0, 5); // Top 5
+    
+    setAulasPopularesData({ horarios: horariosArray, tipos: tiposArray });
+  };
+
+  const processTimeline = (aulasData) => {
+    if (!aulasData || aulasData.length === 0) {
+      setTimelineData([]);
+      return;
+    }
+
+    const sortedAulas = aulasData.sort((a, b) => new Date(a.data_hora) - new Date(b.data_hora));
+    const primeiraAula = sortedAulas[0];
+    const ultimaAula = sortedAulas[sortedAulas.length - 1];
+    
+    const monthlyStats = {};
+    
+    sortedAulas.forEach(aula => {
+      const date = new Date(aula.data_hora);
+      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      
+      if (!monthlyStats[monthKey]) {
+        monthlyStats[monthKey] = {
+          mes: date.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }),
+          data: date,
+          aulas: 0,
+          presencas: 0,
+          tipo: 'normal'
+        };
+      }
+      
+      monthlyStats[monthKey].aulas += 1;
+      monthlyStats[monthKey].presencas += parseInt(aula.num_presencas) || 0;
+    });
+
+    const timelineArray = Object.values(monthlyStats).sort((a, b) => a.data - b.data);
+    
+    // Identificar marcos importantes
+    timelineArray.forEach((item, index) => {
+      if (index === 0) {
+        item.tipo = 'inicio';
+        item.marco = 'Início do Programa';
+      } else if (index === timelineArray.length - 1) {
+        item.tipo = 'atual';
+        item.marco = 'Situação Atual';
+      } else {
+        const prevItem = timelineArray[index - 1];
+        const crescimento = ((item.presencas - prevItem.presencas) / Math.max(prevItem.presencas, 1)) * 100;
+        
+        if (crescimento > 50) {
+          item.tipo = 'crescimento';
+          item.marco = `+${Math.round(crescimento)}% crescimento`;
+        } else if (crescimento < -25) {
+          item.tipo = 'declinio';
+          item.marco = `${Math.round(crescimento)}% declínio`;
+        }
+      }
+    });
+
+    setTimelineData(timelineArray);
   };
 
   const processDepartmentData = async (statsData) => {
@@ -319,8 +516,11 @@ function Dashboard() {
   useEffect(() => {
     if (stats && aulas.length > 0) {
       processDepartmentData(stats);
+      processAulasPopulares(aulas);
+      processTimeline(aulas);
+      processUnidadesData(stats);
     }
-  }, [selectedDepartment, selectedPeriod, stats, aulas]);
+  }, [selectedDepartment, selectedPeriod, stats, aulas, funcionarios]);
 
   const handleRefresh = () => {
     fetchDashboardData();
@@ -328,6 +528,33 @@ function Dashboard() {
 
   const handleCloseSnackbar = () => {
     setSnackbar({ ...snackbar, open: false });
+  };
+
+  const handleExportRelatorio = async (formato, tipo) => {
+    try {
+      const response = await exportarRelatorio(formato, tipo);
+      const blob = new Blob([response.data]);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `relatorio-engajamento-${new Date().toISOString().split('T')[0]}.${formato === 'excel' ? 'xlsx' : 'pdf'}`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      
+      setSnackbar({
+        open: true,
+        message: `Relatório ${formato.toUpperCase()} exportado com sucesso!`,
+        severity: 'success'
+      });
+    } catch (error) {
+      setSnackbar({
+        open: true,
+        message: `Erro ao exportar relatório: ${formatApiError(error)}`,
+        severity: 'error'
+      });
+    }
   };
 
   if (loading) {
@@ -383,80 +610,38 @@ function Dashboard() {
             </Typography>
           </Box>
 
-          <Button
-            startIcon={<Refresh />}
-            variant="outlined"
-            onClick={handleRefresh}
-            sx={{ borderRadius: 2 }}
-          >
-            Atualizar
-          </Button>
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+            <Button
+              startIcon={<PictureAsPdf />}
+              variant="outlined"
+              onClick={() => handleExportRelatorio('pdf', 'geral')}
+              sx={{ borderRadius: 2 }}
+              size="small"
+            >
+              PDF
+            </Button>
+            <Button
+              startIcon={<TableChart />}
+              variant="outlined"
+              onClick={() => handleExportRelatorio('excel', 'geral')}
+              sx={{ borderRadius: 2 }}
+              size="small"
+            >
+              Excel
+            </Button>
+            <Button
+              startIcon={<Refresh />}
+              variant="outlined"
+              onClick={handleRefresh}
+              sx={{ borderRadius: 2 }}
+            >
+              Atualizar
+            </Button>
+          </Box>
         </Box>
       </Fade>
 
-      {/* Área de Filtros */}
-      <Fade in={true} timeout={1000}>
-        <Card sx={{ mb: 3, borderRadius: 2 }}>
-          <CardContent sx={{ py: 2 }}>
-            <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
-              <Typography variant="subtitle2" sx={{ color: 'text.secondary', minWidth: 60 }}>
-                Filtros:
-              </Typography>
-              
-              <FormControl size="small" sx={{ minWidth: 120 }}>
-                <InputLabel>Período</InputLabel>
-                <Select
-                  value={selectedPeriod}
-                  label="Período"
-                  onChange={(e) => setSelectedPeriod(e.target.value)}
-                  sx={{ borderRadius: 2 }}
-                >
-                  <MenuItem value="3">Últimos 3 meses</MenuItem>
-                  <MenuItem value="6">Últimos 6 meses</MenuItem>
-                  <MenuItem value="12">Últimos 12 meses</MenuItem>
-                  <MenuItem value="24">Últimos 2 anos</MenuItem>
-                </Select>
-              </FormControl>
 
-              <FormControl size="small" sx={{ minWidth: 180 }}>
-                <InputLabel>Departamento</InputLabel>
-                <Select
-                  value={selectedDepartment}
-                  label="Departamento"
-                  onChange={(e) => setSelectedDepartment(e.target.value)}
-                  sx={{ borderRadius: 2 }}
-                >
-                  <MenuItem value="todos">Todos os Departamentos</MenuItem>
-                  {availableDepartments.map((dept) => (
-                    <MenuItem key={dept} value={dept}>
-                      {dept}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-
-              {(selectedDepartment !== 'todos' || selectedPeriod !== '6') && (
-                <Chip
-                  label="Limpar Filtros"
-                  variant="outlined"
-                  size="small"
-                  onClick={() => {
-                    setSelectedDepartment('todos');
-                    setSelectedPeriod('6');
-                  }}
-                  sx={{ 
-                    borderColor: 'primary.main', 
-                    color: 'primary.main',
-                    '&:hover': {
-                      bgcolor: 'rgba(24, 144, 255, 0.1)'
-                    }
-                  }}
-                />
-              )}
-            </Box>
-          </CardContent>
-        </Card>
-      </Fade>
 
       <Grid container spacing={3}>
         <StatCard
@@ -465,6 +650,7 @@ function Dashboard() {
           subtitle="para sua empresa"
           icon={School}
           gradient="linear-gradient(135deg, #667eea 0%, #764ba2 100%)"
+          textColor="#FFFFFF"
         />
         
         <StatCard
@@ -474,6 +660,7 @@ function Dashboard() {
           icon={People}
           delay={100}
           gradient="linear-gradient(135deg, #f093fb 0%, #f5576c 100%)"
+          textColor="#FFFFFF"
         />
         
         <StatCard
@@ -483,6 +670,7 @@ function Dashboard() {
           icon={Analytics}
           delay={200}
           gradient="linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)"
+          textColor="#FFFFFF"
         />
 
         <StatCard
@@ -491,7 +679,20 @@ function Dashboard() {
           subtitle="dos funcionários"
           icon={TrendingUp}
           delay={300}
-          gradient="linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)"
+          gradient="linear-gradient(135deg, #437c29ff 0%, #0d8640ff 100%)"
+          textColor="#FFFFFF"
+        />
+
+        <StatCard
+          title="Aulas Mensais"
+          value={stats?.totalAulas > 0 && chartData.length > 0 ? 
+            Math.round(stats.totalAulas / chartData.length) 
+            : 0}
+          subtitle="Média mensal"
+          icon={CalendarToday}
+          delay={500}
+          gradient="linear-gradient(135deg, #8B5CF6, #7C3AED)"
+          isLoading={loading}
         />
 
         {/* Gráfico de Evolução */}
@@ -499,11 +700,41 @@ function Dashboard() {
           <Grid item xs={12} lg={6}>
             <Card sx={{ height: 400, borderRadius: 2 }}>
               <CardContent sx={{ height: '100%' }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-                  <CalendarToday sx={{ mr: 1, color: 'primary.main' }} />
-                  <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                    Evolução das Participações
-                  </Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                    <CalendarToday sx={{ mr: 1, color: 'primary.main' }} />
+                    <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                      Evolução das Participações
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    <FormControl size="small" sx={{ minWidth: 100 }}>
+                      <InputLabel>Métrica</InputLabel>
+                      <Select
+                        value={selectedChartMetric}
+                        label="Métrica"
+                        onChange={(e) => setSelectedChartMetric(e.target.value)}
+                        sx={{ borderRadius: 1 }}
+                      >
+                        <MenuItem value="presencas">Participações</MenuItem>
+                        <MenuItem value="aulas">Aulas</MenuItem>
+                      </Select>
+                    </FormControl>
+                    <FormControl size="small" sx={{ minWidth: 80 }}>
+                      <InputLabel>Período</InputLabel>
+                      <Select
+                        value={selectedPeriod}
+                        label="Período"
+                        onChange={(e) => setSelectedPeriod(e.target.value)}
+                        sx={{ borderRadius: 1 }}
+                      >
+                        <MenuItem value="3">3m</MenuItem>
+                        <MenuItem value="6">6m</MenuItem>
+                        <MenuItem value="12">1a</MenuItem>
+                        <MenuItem value="24">2a</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Box>
                 </Box>
                 {chartData.length > 0 ? (
                   <ResponsiveContainer width="100%" height={300}>
@@ -535,11 +766,21 @@ function Dashboard() {
                       />
                       <Area 
                         type="monotone" 
-                        dataKey="presencas" 
+                        dataKey={selectedChartMetric} 
                         stroke="#1890FF"
                         strokeWidth={3}
                         fillOpacity={1} 
                         fill="url(#colorPresencas)" 
+                        onClick={(data, index) => {
+                          if (data && data.payload) {
+                            setDrilldownData({
+                              mes: data.payload.mes,
+                              aulas: data.payload.aulas,
+                              presencas: data.payload.presencas
+                            });
+                          }
+                        }}
+                        style={{ cursor: 'pointer' }}
                       />
                     </AreaChart>
                   </ResponsiveContainer>
@@ -561,16 +802,34 @@ function Dashboard() {
           </Grid>
         </Grow>
 
-        {/* Gráfico de Participação por Departamento - NOVO */}
+        {/* Gráfico de Participação por Departamento */}
         <Grow in={true} timeout={1100}>
           <Grid item xs={12} lg={6}>
             <Card sx={{ height: 400, borderRadius: 2 }}>
               <CardContent sx={{ height: '100%' }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-                  <People sx={{ mr: 1, color: 'primary.main' }} />
-                  <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                    Participação por Departamento
-                  </Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                    <People sx={{ mr: 1, color: 'primary.main' }} />
+                    <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                      Participação por Departamento
+                    </Typography>
+                  </Box>
+                  <FormControl size="small" sx={{ minWidth: 120 }}>
+                    <InputLabel>Filtro</InputLabel>
+                    <Select
+                      value={selectedDepartment}
+                      label="Filtro"
+                      onChange={(e) => setSelectedDepartment(e.target.value)}
+                      sx={{ borderRadius: 1 }}
+                    >
+                      <MenuItem value="todos">Todos</MenuItem>
+                      {availableDepartments.map((dept) => (
+                        <MenuItem key={dept} value={dept}>
+                          {dept.length > 12 ? `${dept.substring(0, 12)}...` : dept}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
                 </Box>
                 {departmentData.length > 0 ? (
                   <Box sx={{ display: 'flex', height: 300 }}>
@@ -585,6 +844,17 @@ function Dashboard() {
                             outerRadius={80}
                             paddingAngle={2}
                             dataKey="participacoes"
+                            onClick={(data, index) => {
+                              if (data && data.payload) {
+                                setDrilldownData({
+                                  departamento: data.payload.nome,
+                                  funcionarios: data.payload.funcionarios,
+                                  participacoes: data.payload.participacoes,
+                                  tipo: 'departamento'
+                                });
+                              }
+                            }}
+                            style={{ cursor: 'pointer' }}
                           >
                             {departmentData.map((entry, index) => (
                               <Cell 
@@ -596,12 +866,14 @@ function Dashboard() {
                           <Tooltip 
                             contentStyle={{
                               backgroundColor: '#1A1A1D',
+                              color: '#ffffff',
                               border: '1px solid rgba(255,255,255,0.1)',
                               borderRadius: '12px',
                               boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
                               color: '#FFFFFF'
                             }}
                             labelStyle={{ color: '#FFFFFF' }}
+                            itemStyle={{ color: '#FFFFFF' }}
                             formatter={(value, name, props) => [
                               `${value} participações`,
                               props.payload.nome
@@ -641,6 +913,7 @@ function Dashboard() {
                               height: 12, 
                               backgroundColor: getColorForIndex(index),
                               borderRadius: '50%',
+                              color: '#ffffff', 
                               mr: 1
                             }} 
                           />
@@ -659,7 +932,7 @@ function Dashboard() {
                             <Typography 
                               variant="caption" 
                               sx={{ 
-                                color: 'text.secondary',
+                                color: '#ffffff',
                                 fontSize: '0.65rem'
                               }}
                             >
@@ -677,7 +950,7 @@ function Dashboard() {
                     alignItems: 'center', 
                     justifyContent: 'center', 
                     height: 300,
-                    color: 'text.secondary'
+                    color: '#ffffff'
                   }}>
                     <Warning sx={{ fontSize: 48, mb: 2, opacity: 0.5 }} />
                     <Typography>Carregando dados dos departamentos...</Typography>
@@ -688,131 +961,7 @@ function Dashboard() {
           </Grid>
         </Grow>
 
-        {/* Card de Resumo Rápido - ATUALIZADO SEM A INFORMAÇÃO DE EMPRESAS ATENDIDAS */}
-        <Grow in={true} timeout={1600}>
-          <Grid item xs={12} lg={4}>
-            <Card sx={{ height: 400, borderRadius: 2 }}>
-              <CardContent sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-                <Typography variant="h6" gutterBottom sx={{ fontWeight: 600, mb: 2 }}>
-                  Resumo Rápido
-                </Typography>
-                <Box 
-                  sx={{ 
-                    flex: 1,
-                    overflowY: 'auto',
-                    pr: 1, // padding right para dar espaço para o scrollbar
-                    '&::-webkit-scrollbar': {
-                      width: '6px',
-                    },
-                    '&::-webkit-scrollbar-track': {
-                      background: 'rgba(255,255,255,0.1)',
-                      borderRadius: '3px',
-                    },
-                    '&::-webkit-scrollbar-thumb': {
-                      background: 'rgba(255,255,255,0.3)',
-                      borderRadius: '3px',
-                      '&:hover': {
-                        background: 'rgba(255,255,255,0.4)',
-                      },
-                    },
-                  }}
-                >
-                  <Box sx={{ p: 3, borderRadius: 2, bgcolor: 'rgba(16, 185, 129, 0.1)', mb: 2 }}>
-                    <Typography variant="h4" sx={{ color: '#10B981', fontWeight: 700, mb: 1 }}>
-                      {aulas.length > 0 ?
-                        `${Math.round((aulas.filter(a => parseInt(a.num_presencas) > 5).length / aulas.length) * 100)}%` 
-                        : '0%'
-                      }
-                    </Typography>
-                    <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                      das aulas tiveram boa participação (acima de 5 pessoas)
-                    </Typography>
-                  </Box>
-                  
-                  <Box sx={{ p: 3, borderRadius: 2, bgcolor: 'rgba(139, 92, 246, 0.1)', mb: 2 }}>
-                    <Typography variant="h4" sx={{ color: '#8B5CF6', fontWeight: 700, mb: 1 }}>
-                      {stats?.totalAulas > 0 && chartData.length > 0 ? 
-                        Math.round(stats.totalAulas / chartData.length) 
-                        : 0
-                      }
-                    </Typography>
-                    <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                      aulas realizadas por mês em média
-                    </Typography>
-                  </Box>
-
-                  <Box sx={{ p: 3, borderRadius: 2, bgcolor: 'rgba(245, 158, 11, 0.1)' }}>
-                    <Typography variant="h4" sx={{ color: '#F59E0B', fontWeight: 700, mb: 1 }}>
-                      {stats?.mediaParticipantes || '0.0'}
-                    </Typography>
-                    <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                      participantes por aula em média
-                    </Typography>
-                  </Box>
-                </Box>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grow>
-
-        {/* Gráfico de Aulas por Mês */}
-        <Grow in={true} timeout={1400}>
-          <Grid item xs={12} lg={6}>
-            <Card sx={{ height: 350, borderRadius: 2 }}>
-              <CardContent>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-                  <AccessTime sx={{ mr: 1, color: 'primary.main' }} />
-                  <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                    Aulas por Período
-                  </Typography>
-                </Box>
-                {chartData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={250}>
-                    <BarChart data={chartData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-                      <XAxis dataKey="mes" stroke="#B3B3B3" fontSize={12} />
-                      <YAxis stroke="#B3B3B3" fontSize={12} />
-                      <Tooltip 
-                        contentStyle={{
-                          backgroundColor: '#1A1A1D',
-                          border: '1px solid rgba(255,255,255,0.1)',
-                          borderRadius: '12px',
-                          boxShadow: '0 8px 32px rgba(0,0,0,0.3)'
-                        }}
-                        labelStyle={{ color: '#FFFFFF' }}
-                      />
-                      <Bar 
-                        dataKey="aulas" 
-                        fill="url(#gradient)" 
-                        radius={[8, 8, 0, 0]}
-                      />
-                      <defs>
-                        <linearGradient id="gradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#8B5CF6" />
-                          <stop offset="100%" stopColor="#A78BFA" />
-                        </linearGradient>
-                      </defs>
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <Box sx={{ 
-                    display: 'flex', 
-                    flexDirection: 'column',
-                    alignItems: 'center', 
-                    justifyContent: 'center', 
-                    height: 250,
-                    color: 'text.secondary'
-                  }}>
-                    <Warning sx={{ fontSize: 48, mb: 2, opacity: 0.5 }} />
-                    <Typography>Não há dados para exibir</Typography>
-                  </Box>
-                )}
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grow>
-
-        {/* Informações sobre Funcionários */}
+        {/* Gráfico de Aulas Populares - NOVO */}
         <Grow in={true} timeout={1200}>
           <Grid item xs={12} lg={6}>
             <Card sx={{ height: 350, borderRadius: 2 }}>
@@ -879,6 +1028,378 @@ function Dashboard() {
             </Card>
           </Grid>
         </Grow>
+
+        {/* Timeline do Programa - NOVO */}
+        <Grow in={true} timeout={1300}>
+          <Grid item xs={12}>
+            <Card sx={{ borderRadius: 2 }}>
+              <CardContent>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                    <Timeline sx={{ mr: 1, color: 'primary.main' }} />
+                    <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                      Linha do Tempo do Programa
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <FormControl size="small" sx={{ minWidth: 100 }}>
+                      <InputLabel>Período</InputLabel>
+                      <Select
+                        value={selectedPeriod}
+                        label="Período"
+                        onChange={(e) => setSelectedPeriod(e.target.value)}
+                        sx={{ borderRadius: 1 }}
+                      >
+                        <MenuItem value="3">3 meses</MenuItem>
+                        <MenuItem value="6">6 meses</MenuItem>
+                        <MenuItem value="12">1 ano</MenuItem>
+                        <MenuItem value="24">2 anos</MenuItem>
+                      </Select>
+                    </FormControl>
+                    <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                      Marcos importantes e evolução
+                    </Typography>
+                  </Box>
+                </Box>
+                {timelineData.length > 0 ? (
+                  <Box sx={{ 
+                    display: 'flex', 
+                    overflowX: 'auto', 
+                    gap: 2, 
+                    pb: 2,
+                    '&::-webkit-scrollbar': {
+                      height: '6px',
+                    },
+                    '&::-webkit-scrollbar-track': {
+                      background: 'rgba(255,255,255,0.1)',
+                      borderRadius: '3px',
+                    },
+                    '&::-webkit-scrollbar-thumb': {
+                      background: 'rgba(255,255,255,0.3)',
+                      borderRadius: '3px',
+                    },
+                  }}>
+                    {timelineData.map((item, index) => (
+                      <Box 
+                        key={item.mes}
+                        sx={{ 
+                          minWidth: 200,
+                          p: 2,
+                          borderRadius: 2,
+                          bgcolor: item.tipo === 'inicio' ? 'rgba(16, 185, 129, 0.1)' :
+                                  item.tipo === 'atual' ? 'rgba(59, 130, 246, 0.1)' :
+                                  item.tipo === 'crescimento' ? 'rgba(245, 158, 11, 0.1)' :
+                                  item.tipo === 'declinio' ? 'rgba(239, 68, 68, 0.1)' :
+                                  'rgba(255,255,255,0.03)',
+                          border: `1px solid ${
+                            item.tipo === 'inicio' ? 'rgba(16, 185, 129, 0.3)' :
+                            item.tipo === 'atual' ? 'rgba(59, 130, 246, 0.3)' :
+                            item.tipo === 'crescimento' ? 'rgba(245, 158, 11, 0.3)' :
+                            item.tipo === 'declinio' ? 'rgba(239, 68, 68, 0.3)' :
+                            'rgba(255,255,255,0.1)'
+                          }`,
+                          position: 'relative',
+                          '&::before': index < timelineData.length - 1 ? {
+                            content: '""',
+                            position: 'absolute',
+                            right: -16,
+                            top: '50%',
+                            width: 32,
+                            height: 2,
+                            bgcolor: 'rgba(255,255,255,0.2)',
+                            transform: 'translateY(-50%)',
+                            zIndex: 0
+                          } : {}
+                        }}
+                      >
+                        <Typography 
+                          variant="subtitle2" 
+                          sx={{ 
+                            color: item.tipo === 'inicio' ? '#10B981' :
+                                   item.tipo === 'atual' ? '#3B82F6' :
+                                   item.tipo === 'crescimento' ? '#F59E0B' :
+                                   item.tipo === 'declinio' ? '#EF4444' :
+                                   'text.primary',
+                            fontWeight: 600,
+                            mb: 1
+                          }}
+                        >
+                          {item.mes}
+                        </Typography>
+                        
+                        {item.marco && (
+                          <Typography variant="caption" sx={{ 
+                            color: 'text.secondary', 
+                            display: 'block',
+                            mb: 1,
+                            fontSize: '0.7rem'
+                          }}>
+                            {item.marco}
+                          </Typography>
+                        )}
+                        
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 1 }}>
+                          <Typography variant="body2" sx={{ fontSize: '0.8rem' }}>
+                            <strong>{item.aulas}</strong> aulas
+                          </Typography>
+                          <Typography variant="body2" sx={{ fontSize: '0.8rem' }}>
+                            <strong>{item.presencas}</strong> participações
+                          </Typography>
+                        </Box>
+                        
+                        {item.tipo === 'crescimento' && (
+                          <TrendingUp sx={{ 
+                            position: 'absolute', 
+                            top: 8, 
+                            right: 8, 
+                            fontSize: 16, 
+                            color: '#F59E0B' 
+                          }} />
+                        )}
+                        
+                        {item.tipo === 'declinio' && (
+                          <TrendingDown sx={{ 
+                            position: 'absolute', 
+                            top: 8, 
+                            right: 8, 
+                            fontSize: 16, 
+                            color: '#EF4444' 
+                          }} />
+                        )}
+                        
+                        {item.tipo === 'inicio' && (
+                          <Star sx={{ 
+                            position: 'absolute', 
+                            top: 8, 
+                            right: 8, 
+                            fontSize: 16, 
+                            color: '#10B981' 
+                          }} />
+                        )}
+                      </Box>
+                    ))}
+                  </Box>
+                ) : (
+                  <Box sx={{ 
+                    display: 'flex', 
+                    flexDirection: 'column',
+                    alignItems: 'center', 
+                    justifyContent: 'center', 
+                    height: 120,
+                    color: 'text.secondary'
+                  }}>
+                    <Timeline sx={{ fontSize: 48, mb: 2, opacity: 0.5 }} />
+                    <Typography>Histórico insuficiente para timeline</Typography>
+                  </Box>
+                )}
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grow>
+          {/* NOVO: Gráfico de Análise por Unidade */}
+        
+
+        {/* Card de Resumo Rápido - CORRIGIDO */}
+{/* Gráfico de Participações por Unidade - NOVO */}
+{/* Gráfico de Participações por Unidade - SUBSTITUINDO Card de Resumo Rápido */}
+        <Grid item xs={12} md={6}>
+          <Grow in timeout={2000}>
+            <Card sx={{ height: '100%', borderRadius: 3, boxShadow: 3 }}>
+              <CardContent>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                  <Typography variant="h6" sx={{ fontWeight: 'bold', display: 'flex', alignItems: 'center' }}>
+                    <Business sx={{ mr: 1, color: '#1890FF' }} />
+                    Participações por Unidade
+                  </Typography>
+                  {/* FILTRO ESPECÍFICO APENAS PARA ESTE GRÁFICO */}
+                  <FormControl variant="outlined" size="small" sx={{ minWidth: 120 }}>
+                    <InputLabel>Filtro</InputLabel>
+                    <Select
+                      value={selectedUnidade}
+                      onChange={(e) => setSelectedUnidade(e.target.value)} // ⭐ Estado independente
+                      label="Filtro"
+                      sx={{ borderRadius: 1 }}
+                    >
+                      <MenuItem value="todas">Todas</MenuItem>
+                      {unidadesData.map((unidade) => (
+                        <MenuItem key={unidade.unidade} value={unidade.unidade}>
+                          {unidade.unidade.length > 12 ? `${unidade.unidade.substring(0, 12)}...` : unidade.unidade}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Box>
+
+                {unidadesData.length > 0 ? (
+                  <>
+                    {/* Resumo dinâmico baseado no filtro */}
+                    <Box sx={{ mb: 2, p: 2, bgcolor: 'rgba(24, 144, 255, 0.08)', borderRadius: 2 }}>
+                      <Typography variant="body2" color="text.secondary" gutterBottom>
+                        {selectedUnidade === 'todas' 
+                          ? `${unidadesData.length} unidades ativas`
+                          : `Unidade: ${selectedUnidade}`
+                        }
+                      </Typography>
+                      <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
+                        {selectedUnidade === 'todas' 
+                          ? `${unidadesData.reduce((sum, u) => sum + u.participacoes, 0)} participações totais`
+                          : `${unidadesData.find(u => u.unidade === selectedUnidade)?.participacoes || 0} participações`
+                        }
+                      </Typography>
+                      {selectedUnidade === 'todas' && (
+                        <Typography variant="body2" color="text.secondary">
+                          {unidadesData.reduce((sum, u) => sum + u.funcionarios, 0)} funcionários distribuídos
+                        </Typography>
+                      )}
+                    </Box>
+
+                    {/* Gráfico que muda conforme o filtro */}
+                    <ResponsiveContainer width="100%" height={300}>
+                      <BarChart
+                        data={selectedUnidade === 'todas' 
+                          ? unidadesData 
+                          : unidadesData.filter(u => u.unidade === selectedUnidade)
+                        } // ⭐ Dados filtrados apenas para este gráfico
+                        margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+                        onClick={(data) => {
+                          if (data && data.activePayload) {
+                            setDrilldownData({
+                              unidade: data.activePayload[0].payload.unidade,
+                              participacoes: data.activePayload[0].payload.participacoes,
+                              funcionarios: data.activePayload[0].payload.funcionarios,
+                              taxa: data.activePayload[0].payload.taxa,
+                              tipo: 'unidade'
+                            });
+                          }
+                        }}
+                        style={{ cursor: 'pointer' }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis 
+                          dataKey="unidade" 
+                          tick={{ fontSize: 12 }}
+                          interval={0}
+                          angle={-45}
+                          textAnchor="end"
+                          height={80}
+                        />
+                        <YAxis tick={{ fontSize: 12 }} />
+                        <Tooltip
+                          formatter={(value, name) => [
+                            `${value} ${name === 'participacoes' ? 'participações' : name === 'funcionarios' ? 'funcionários' : name}`,
+                            name === 'participacoes' ? 'Participações' : name === 'funcionarios' ? 'Funcionários' : 'Taxa (%)'
+                          ]}
+                          labelFormatter={(label) => `Unidade: ${label}`}
+                          contentStyle={{
+                            backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                            color: '#1890FF',
+                            border: '1px solid #e0e0e0',
+                            borderRadius: '8px'
+                            
+                          }}
+                          
+                        />
+                        <Bar dataKey="participacoes" fill="#1890FF" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+
+                    {/* Indicadores de performance por unidade */}
+                    <Box sx={{ mt: 2 }}>
+                      <Typography variant="body2" color="text.secondary" gutterBottom>
+                        Indicadores de Performance:
+                      </Typography>
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                        {(selectedUnidade === 'todas' 
+                          ? unidadesData 
+                          : unidadesData.filter(u => u.unidade === selectedUnidade)
+                        ).map((unidade, index) => (
+                          <Chip
+                            key={unidade.unidade}
+                            label={`${unidade.unidade}: ${unidade.taxa}%`}
+                            size="small"
+                            sx={{
+                              bgcolor: unidade.taxa > 70 ? 'rgba(16, 185, 129, 0.2)' : 
+                                      unidade.taxa > 40 ? 'rgba(245, 158, 11, 0.2)' : 'rgba(239, 68, 68, 0.2)',
+                              color: unidade.taxa > 70 ? '#10B981' : 
+                                    unidade.taxa > 40 ? '#F59E0B' : '#EF4444'
+                            }}
+                          />
+                        ))}
+                      </Box>
+                    </Box>
+                  </>
+                ) : (
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200 }}>
+                    <Typography color="text.secondary">
+                      Carregando dados das unidades...
+                    </Typography>
+                  </Box>
+                )}
+              </CardContent>
+            </Card>
+          </Grow>
+        </Grid>
+
+
+        {/* Gráfico de Aulas por Mês }
+        <Grow in={true} timeout={1400}>
+          <Grid item xs={12} lg={6}>
+            <Card sx={{ height: 350, borderRadius: 2 }}>
+              <CardContent>
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+                  <AccessTime sx={{ mr: 1, color: 'primary.main' }} />
+                  <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                    Aulas por Período
+                  </Typography>
+                </Box>
+                {chartData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={250}>
+                    <BarChart data={chartData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                      <XAxis dataKey="mes" stroke="#B3B3B3" fontSize={12} />
+                      <YAxis stroke="#B3B3B3" fontSize={12} />
+                      <Tooltip 
+                        contentStyle={{
+                          backgroundColor: '#1A1A1D',
+                          border: '1px solid rgba(255,255,255,0.1)',
+                          borderRadius: '12px',
+                          boxShadow: '0 8px 32px rgba(0,0,0,0.3)'
+                        }}
+                        labelStyle={{ color: '#FFFFFF' }}
+                      />
+                      <Bar 
+                        dataKey="aulas" 
+                        fill="url(#gradient)" 
+                        radius={[8, 8, 0, 0]}
+                      />
+                      <defs>
+                        <linearGradient id="gradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#8B5CF6" />
+                          <stop offset="100%" stopColor="#A78BFA" />
+                        </linearGradient>
+                      </defs>
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <Box sx={{ 
+                    display: 'flex', 
+                    flexDirection: 'column',
+                    alignItems: 'center', 
+                    justifyContent: 'center', 
+                    height: 250,
+                    color: 'text.secondary'
+                  }}>
+                    <Warning sx={{ fontSize: 48, mb: 2, opacity: 0.5 }} />
+                    <Typography>Não há dados para exibir</Typography>
+                  </Box>
+                )}
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grow>
+
+        {/* Informações sobre Funcionários */}
+
       </Grid>
 
       {/* Snackbar para feedback */}
@@ -896,6 +1417,145 @@ function Dashboard() {
           {snackbar.message}
         </Alert>
       </Snackbar>
+
+      {/* Modal de Drilldown - NOVO */}
+      <Dialog
+        open={!!drilldownData}
+        onClose={() => setDrilldownData(null)}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 3,
+            bgcolor: 'background.paper'
+          }
+        }}
+      >
+        <DialogTitle sx={{ pb: 1 }}>
+          <Typography variant="h6" sx={{ fontWeight: 600 }}>
+            {drilldownData?.tipo === 'departamento' 
+              ? `Departamento: ${drilldownData?.departamento}`
+              : drilldownData?.tipo === 'unidade'
+              ? `Unidade: ${drilldownData?.unidade}` 
+              : `Detalhes - ${drilldownData?.mes}`}
+          </Typography>
+        </DialogTitle>
+        <DialogContent>
+          {drilldownData && (
+            <>
+              {drilldownData.tipo === 'departamento' ? (
+                // Drilldown para departamento (existente)
+                <>
+                  <Typography variant="h4" sx={{ fontWeight: 'bold', mb: 1 }}>
+                    {drilldownData.funcionarios}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" gutterBottom>
+                    Funcionários ativos
+                  </Typography>
+
+                  <Typography variant="h4" sx={{ fontWeight: 'bold', mb: 1 }}>
+                    {drilldownData.participacoes}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" gutterBottom>
+                    Total de participações
+                  </Typography>
+
+                  <Divider sx={{ my: 2 }} />
+                  <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                    Média de participações por funcionário:
+                  </Typography>
+                  <Typography variant="h6" color="primary">
+                    {drilldownData.funcionarios > 0 ? (drilldownData.participacoes / drilldownData.funcionarios).toFixed(1) : '0.0'}
+                  </Typography>
+                </>
+              ) : drilldownData.tipo === 'unidade' ? (
+                // Drilldown para unidade (NOVO)
+                <>
+                  <Typography variant="h4" sx={{ fontWeight: 'bold', mb: 1, color: '#1890FF' }}>
+                    {drilldownData.participacoes}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" gutterBottom>
+                    Total de participações
+                  </Typography>
+
+                  <Typography variant="h4" sx={{ fontWeight: 'bold', mb: 1 }}>
+                    {drilldownData.funcionarios}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" gutterBottom>
+                    Funcionários na unidade
+                  </Typography>
+
+                  <Typography variant="h4" sx={{ fontWeight: 'bold', mb: 1, color: drilldownData.taxa > 70 ? '#10B981' : drilldownData.taxa > 40 ? '#F59E0B' : '#EF4444' }}>
+                    {drilldownData.taxa}%
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" gutterBottom>
+                    Taxa de participação
+                  </Typography>
+
+                  <Divider sx={{ my: 2 }} />
+                  <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                    Média de participações por funcionário:
+                  </Typography>
+                  <Typography variant="h6" color="primary">
+                    {drilldownData.funcionarios > 0 ? (drilldownData.participacoes / drilldownData.funcionarios).toFixed(1) : '0.0'}
+                  </Typography>
+
+                  {/* Indicador de performance */}
+                  <Box sx={{ mt: 2, p: 2, bgcolor: 'rgba(24, 144, 255, 0.08)', borderRadius: 2 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                      Status da Unidade:
+                    </Typography>
+                    <Chip
+                      label={
+                        drilldownData.taxa > 70 ? '✅ Excelente Performance' :
+                        drilldownData.taxa > 40 ? '⚠️ Performance Média' : '🚨 Precisa de Atenção'
+                      }
+                      sx={{
+                        mt: 1,
+                        bgcolor: drilldownData.taxa > 70 ? 'rgba(16, 185, 129, 0.2)' : 
+                                drilldownData.taxa > 40 ? 'rgba(245, 158, 11, 0.2)' : 'rgba(239, 68, 68, 0.2)',
+                        color: drilldownData.taxa > 70 ? '#10B981' : 
+                              drilldownData.taxa > 40 ? '#F59E0B' : '#EF4444'
+                      }}
+                    />
+                  </Box>
+                </>
+              ) : (
+                // Drilldown para período (existente)
+                <>
+                  <Typography variant="h4" sx={{ fontWeight: 'bold', mb: 1 }}>
+                    {drilldownData.aulas}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" gutterBottom>
+                    Aulas realizadas
+                  </Typography>
+
+                  <Typography variant="h4" sx={{ fontWeight: 'bold', mb: 1 }}>
+                    {drilldownData.presencas}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" gutterBottom>
+                    Total de participações
+                  </Typography>
+
+                  <Divider sx={{ my: 2 }} />
+                  <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                    Média de participantes por aula:
+                  </Typography>
+                  <Typography variant="h6" color="primary">
+                    {drilldownData.aulas > 0 ? (drilldownData.presencas / drilldownData.aulas).toFixed(1) : '0.0'}
+                  </Typography>
+                </>
+              )}
+            </>
+          )}
+
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDrilldownData(null)} sx={{ borderRadius: 2 }}>
+            Fechar
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Container>
   );
 }

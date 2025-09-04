@@ -1,4 +1,8 @@
 import React, { useEffect, useState } from 'react';
+import jsPDF from 'jspdf';
+import { applyPlugin } from 'jspdf-autotable';
+import * as XLSX from 'xlsx';
+applyPlugin(jsPDF);
 import {
   Box,
   Typography,
@@ -46,11 +50,12 @@ import {
 } from '@mui/icons-material';
 import { getFuncionarios, formatApiError } from '../api/ApiService';
 
-// Componente personalizado da toolbar
-function CustomToolbar() {
+
+// ✅ CORRETO - Versão completa e funcional
+function CustomToolbar({ onExportPDF, onExportExcel, totalFiltrados }) {
   return (
     <GridToolbarContainer sx={{ p: 2, justifyContent: 'space-between' }}>
-      <Box sx={{ display: 'flex', gap: 1 }}>
+      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
         <GridToolbarFilterButton
           sx={{
             color: 'text.primary',
@@ -63,15 +68,29 @@ function CustomToolbar() {
             '& .MuiButton-startIcon': { color: 'primary.main' },
           }}
         />
+        <Typography variant="body2" sx={{ color: 'text.secondary', ml: 2 }}>
+          Mostrando {totalFiltrados} funcionário(s)
+        </Typography>
       </Box>
+      
       <Box sx={{ display: 'flex', gap: 1 }}>
         <Button
-          startIcon={<PersonAdd />}
-          variant="contained"
+          startIcon={<PictureAsPdf />}
+          variant="outlined"
           size="small"
+          onClick={onExportPDF}
           sx={{ borderRadius: 2 }}
         >
-          Adicionar Funcionário
+          PDF
+        </Button>
+        <Button
+          startIcon={<TableChart />}
+          variant="outlined"
+          size="small"
+          onClick={onExportExcel}
+          sx={{ borderRadius: 2 }}
+        >
+          Excel
         </Button>
         <GridToolbarExport
           sx={{
@@ -124,6 +143,8 @@ function Funcionarios() {
   const [anchorEl, setAnchorEl] = useState(null);
   const [selectedFuncionario, setSelectedFuncionario] = useState(null);
 
+
+
   // Estados para estatísticas
   const [stats, setStats] = useState({
     total: 0,
@@ -131,6 +152,90 @@ function Funcionarios() {
     inativos: 0,
     mediaPresencas: 0,
   });
+
+  // Função para exportar PDF (dados filtrados)
+  const exportarPDF = () => {
+    const doc = new jsPDF();
+    
+    // Título
+    doc.setFontSize(18);
+    doc.text('Lista de Funcionários', 14, 20);
+    
+    // Info dos filtros aplicados
+    if (searchTerm || unidadeFiltro) {
+      doc.setFontSize(12);
+      let filtroInfo = 'Filtros aplicados: ';
+      if (searchTerm) filtroInfo += `Busca: "${searchTerm}" `;
+      if (unidadeFiltro) filtroInfo += `Unidade: "${unidadeFiltro}"`;
+      doc.text(filtroInfo, 14, 30);
+    }
+    
+    // Preparar dados da tabela
+    const tableData = filteredFuncionarios.map(func => [
+      func.nfc_tag_id || 'N/A',
+      func.nome_completo,
+      func.cargo || 'Não informado',
+      func.unidade || 'Principal',
+      func.total_presencas || 0,
+      func.ultima_participacao
+        ? new Date(func.ultima_participacao).toLocaleDateString('pt-BR')
+        : 'Nunca'
+    ]);
+    
+    // Gerar tabela
+    doc.autoTable({
+      head: [['NFC Tag ID','Nome', 'Cargo', 'Unidade', 'Participações', 'Última Participação']],
+      body: tableData,
+      startY: searchTerm || unidadeFiltro ? 40 : 30,
+      styles: { fontSize: 8 },
+      headStyles: { fillColor: [41, 128, 185] },
+      columnStyles: {
+        0: { cellWidth: 25 }, // NFC Tag ID (nova)
+        1: { cellWidth: 50 }, // Nome
+        2: { cellWidth: 40 }, // Cargo
+        3: { cellWidth: 30 }, // Unidade
+        4: { cellWidth: 25, halign: 'center' }, // Participações
+        5: { cellWidth: 35, halign: 'center' } // Última Participação
+      }
+    });
+    
+    doc.save(`funcionarios_${new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')}.pdf`);
+  };
+
+  // Função para exportar Excel (dados filtrados)
+  const exportarExcel = () => {
+    const wsData = [
+      ['NFC Tag ID','Nome', 'Email', 'Cargo', 'Unidade', 'Participações', 'Última Participação'],
+      ...filteredFuncionarios.map(func => [
+        func.nfc_tag_id || 'N/A',
+        func.nome_completo,
+        func.email || '',
+        func.cargo || 'Não informado',
+        func.unidade || 'Principal',
+        func.total_presencas || 0,
+        func.ultima_participacao
+          ? new Date(func.ultima_participacao).toLocaleDateString('pt-BR')
+          : 'Nunca'
+      ])
+    ];
+    
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    
+    // Configurar larguras das colunas
+    ws['!cols'] = [
+      { wch: 15 }, // NFC Tag ID (nova)
+      { wch: 25 }, // Nome
+      { wch: 30 }, // Email
+      { wch: 20 }, // Cargo
+      { wch: 15 }, // Unidade
+      { wch: 12 }, // Participações
+      { wch: 18 }  // Última Participação
+    ];
+    
+    XLSX.utils.book_append_sheet(wb, ws, 'Funcionários');
+    XLSX.writeFile(wb, `funcionarios_${new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')}.xlsx`);
+  };
 
   const fetchFuncionarios = async () => {
     setLoading(true);
@@ -146,14 +251,14 @@ function Funcionarios() {
       const total = funcionariosData.length;
       const ativos = funcionariosData.filter(f => f.total_presencas > 0).length;
       const inativos = total - ativos;
-      const totalPresencas = funcionariosData.reduce((sum, f) => sum + (f.total_presencas || 0), 0);
-      const mediaPresencas = total > 0 ? totalPresencas / total : 0;
+      const totalPresencas = funcionariosData.reduce((sum, f) => sum + (parseInt(f.total_presencas) || 0), 0);
+      const mediaPresencas = total > 0 ? (totalPresencas / total) : 0;
 
       setStats({
         total,
         ativos,
         inativos,
-        mediaPresencas,
+        mediaPresencas: Math.round(mediaPresencas * 10) / 10,
       });
 
     } catch (error) {
@@ -184,6 +289,31 @@ function Funcionarios() {
 
   // Colunas da tabela
   const columns = [
+    {
+    field: 'nfc_tag_id',
+    headerName: 'NFC Tag ID',
+    width: 140,
+    align: 'center',
+    headerAlign: 'center',
+    renderCell: (params) => (
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Business sx={{ fontSize: 16, color: 'info.main' }} />
+        <Typography 
+          variant="body2" 
+          sx={{ 
+            fontFamily: 'monospace',
+            bgcolor: 'rgba(59, 130, 246, 0.1)',
+            px: 1,
+            py: 0.5,
+            borderRadius: 1,
+            fontSize: '0.75rem'
+          }}
+        >
+          {params.value || 'N/A'}
+        </Typography>
+      </Box>
+    ),
+  },
     {
       field: 'nome_completo',
       headerName: 'Nome',
@@ -278,23 +408,7 @@ function Funcionarios() {
         </Box>
       ),
     },
-    {
-      field: 'actions',
-      headerName: 'Ações',
-      width: 80,
-      align: 'center',
-      headerAlign: 'center',
-      sortable: false,
-      renderCell: (params) => (
-        <IconButton
-          size="small"
-          onClick={(e) => handleMenuOpen(e, params.row)}
-          sx={{ color: 'text.secondary' }}
-        >
-          <MoreVert />
-        </IconButton>
-      ),
-    },
+    
   ];
 
   // Filtrar funcionários
@@ -359,205 +473,215 @@ function Funcionarios() {
     );
   }
 
-  return (
-    <Container maxWidth="xl">
-      <Fade in={true} timeout={800}>
-        <Box sx={{ mb: 4 }}>
-          <Typography variant="h3" gutterBottom sx={{ fontWeight: 700 }}>
-            Funcionários
-          </Typography>
-          <Typography variant="body1" sx={{ color: 'text.secondary', fontSize: '1.1rem' }}>
-            Gerencie e acompanhe o engajamento dos funcionários no programa de ginástica laboral
-          </Typography>
-        </Box>
-      </Fade>
-
-      {/* Cards de Estatísticas */}
-      <Box sx={{ display: 'flex', gap: 2, mb: 4, flexWrap: 'wrap' }}>
-        <Grow in={true} timeout={600}>
-          <Card sx={{ minWidth: 200, flex: 1 }}>
-            <CardContent sx={{ textAlign: 'center' }}>
-              <People sx={{ fontSize: 40, color: 'primary.main', mb: 1 }} />
-              <Typography variant="h4" sx={{ fontWeight: 700, mb: 1 }}>
-                {stats.total}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Total de Funcionários
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grow>
-
-        <Grow in={true} timeout={800}>
-          <Card sx={{ minWidth: 200, flex: 1 }}>
-            <CardContent sx={{ textAlign: 'center' }}>
-              <Box sx={{ color: '#10B981', mb: 1 }}>
-                <CheckCircle sx={{ fontSize: 40 }} />
-              </Box>
-              <Typography variant="h4" sx={{ fontWeight: 700, mb: 1, color: '#10B981' }}>
-                {stats.ativos}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Funcionários Ativos
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grow>
-
-        <Grow in={true} timeout={1000}>
-          <Card sx={{ minWidth: 200, flex: 1 }}>
-            <CardContent sx={{ textAlign: 'center' }}>
-              <Box sx={{ color: '#EF4444', mb: 1 }}>
-                <Cancel sx={{ fontSize: 40 }} />
-              </Box>
-              <Typography variant="h4" sx={{ fontWeight: 700, mb: 1, color: '#EF4444' }}>
-                {stats.inativos}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Funcionários Inativos
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grow>
-
-        <Grow in={true} timeout={1200}>
-          <Card sx={{ minWidth: 200, flex: 1 }}>
-            <CardContent sx={{ textAlign: 'center' }}>
-              <Box sx={{ color: '#3B82F6', mb: 1 }}>
-                <TrendingUp sx={{ fontSize: 40 }} />
-              </Box>
-              <Typography variant="h4" sx={{ fontWeight: 700, mb: 1, color: '#3B82F6' }}>
-                {stats.mediaPresencas.toFixed(1)}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Média de Participações
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grow>
+return (
+  <Container maxWidth="xl">
+    <Fade in={true} timeout={800}>
+      <Box sx={{ mb: 4 }}>
+        <Typography variant="h3" gutterBottom sx={{ fontWeight: 700 }}>
+          Funcionários
+        </Typography>
+        <Typography variant="body1" sx={{ color: 'text.secondary', fontSize: '1.1rem' }}>
+          Gerencie e acompanhe o engajamento dos funcionários no programa de ginástica laboral
+        </Typography>
       </Box>
+    </Fade>
 
-      {/* Filtros */}
-      <Grow in={true} timeout={1400}>
-        <Card sx={{ mb: 3 }}>
-          <CardContent sx={{ pb: '16px !important' }}>
-            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-              <TextField
-                placeholder="Buscar por nome, email ou cargo..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <Search sx={{ color: 'text.secondary' }} />
-                    </InputAdornment>
-                  ),
-                }}
-                sx={{
-                  flex: 1,
-                  minWidth: 300,
-                  '& .MuiOutlinedInput-root': {
-                    borderRadius: 2,
-                    bgcolor: 'rgba(255,255,255,0.03)',
-                    '&:hover': {
-                      bgcolor: 'rgba(255,255,255,0.05)',
-                    },
-                  },
-                }}
-              />
-              
-              <FormControl sx={{ minWidth: 200 }}>
-                <InputLabel>Filtrar por Unidade</InputLabel>
-                <Select
-                  value={unidadeFiltro}
-                  onChange={(e) => setUnidadeFiltro(e.target.value)}
-                  label="Filtrar por Unidade"
-                  sx={{
-                    borderRadius: 2,
-                    bgcolor: 'rgba(255,255,255,0.03)',
-                  }}
-                >
-                  <MenuItem value="">
-                    <em>Todas as Unidades</em>
-                  </MenuItem>
-                  <MenuItem value="Principal">Principal</MenuItem>
-                  {unidades.map((unidade) => (
-                    <MenuItem key={unidade} value={unidade}>
-                      {unidade}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Box>
+    {/* Header com título e botões de exportação - IGUAL AO DASHBOARD */}
+    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
+      <Typography variant="h4" sx={{ fontWeight: 600 }}>
+        Lista de Funcionários
+      </Typography>
+      
+      {/* Botões de Exportação - COPIADO DO DASHBOARD */}
+      <Box sx={{ display: 'flex', gap: 1 }}>
+        <Button
+          variant="outlined"
+          onClick={() => {
+            console.log('Exportando PDF...');
+            exportarPDF();
+          }}
+          sx={{ borderRadius: 2 }}
+          size="small"
+          startIcon={<Download />}
+        >
+          PDF
+        </Button>
+        <Button
+          variant="outlined"
+          onClick={() => {
+            console.log('Exportando Excel...');
+            exportarExcel();
+          }}
+          sx={{ borderRadius: 2 }}
+          size="small"
+          startIcon={<Download />}
+        >
+          Excel
+        </Button>
+      </Box>
+    </Box>
+
+    {/* Cards de Estatísticas */}
+    <Box sx={{ display: 'flex', gap: 2, mb: 4, flexWrap: 'wrap' }}>
+      <Grow in={true} timeout={600}>
+        <Card sx={{ minWidth: 200, flex: 1 }}>
+          <CardContent sx={{ textAlign: 'center' }}>
+            <People sx={{ fontSize: 40, color: 'primary.main', mb: 1 }} />
+            <Typography variant="h4" sx={{ fontWeight: 700, mb: 1 }}>
+              {stats.total}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Total de Funcionários
+            </Typography>
           </CardContent>
         </Card>
       </Grow>
 
-      {/* Tabela de Dados */}
-      <Grow in={true} timeout={1600}>
-        <Card>
-          <DataGrid
-            rows={filteredFuncionarios}
-            columns={columns}
-            loading={loading}
-            localeText={ptBR.components.MuiDataGrid.defaultProps.localeText}
-            initialState={{
-              pagination: { paginationModel: { pageSize: 10 } },
-              sorting: {
-                sortModel: [{ field: 'total_presencas', sort: 'desc' }],
-              },
-            }}
-            pageSizeOptions={[5, 10, 25, 50]}
-            slots={{
-              toolbar: CustomToolbar,
-            }}
-            sx={{
-              border: 'none',
-              minHeight: 600,
-              '& .MuiDataGrid-root': {
-                border: 'none',
-              },
-              '& .MuiDataGrid-cell': {
-                borderColor: 'rgba(255,255,255,0.05)',
-              },
-              '& .MuiDataGrid-columnHeaders': {
-                backgroundColor: 'rgba(255,255,255,0.02)',
-                borderColor: 'rgba(255,255,255,0.05)',
-              },
-              '& .MuiDataGrid-row:hover': {
-                backgroundColor: 'rgba(255,255,255,0.02)',
-              },
-              '& .MuiDataGrid-footerContainer': {
-                borderColor: 'rgba(255,255,255,0.05)',
-              },
-            }}
-          />
+      <Grow in={true} timeout={800}>
+        <Card sx={{ minWidth: 200, flex: 1 }}>
+          <CardContent sx={{ textAlign: 'center' }}>
+            <Box sx={{ color: '#10B981', mb: 1 }}>
+              <CheckCircle sx={{ fontSize: 40 }} />
+            </Box>
+            <Typography variant="h4" sx={{ fontWeight: 700, mb: 1, color: '#10B981' }}>
+              {stats.ativos}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Funcionários Ativos
+            </Typography>
+          </CardContent>
         </Card>
       </Grow>
 
-      {/* Menu de Ações */}
-      <Menu
-        anchorEl={anchorEl}
-        open={Boolean(anchorEl)}
-        onClose={handleMenuClose}
-        transformOrigin={{ horizontal: 'right', vertical: 'top' }}
-        anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
-      >
-        <MenuItem onClick={handleMenuClose}>
-          <People sx={{ mr: 1, fontSize: 18 }} />
-          Ver Detalhes
-        </MenuItem>
-        <MenuItem onClick={handleMenuClose}>
-          <Email sx={{ mr: 1, fontSize: 18 }} />
-          Enviar Email
-        </MenuItem>
-        <MenuItem onClick={handleMenuClose}>
-          <Download sx={{ mr: 1, fontSize: 18 }} />
-          Exportar Dados
-        </MenuItem>
-      </Menu>
-    </Container>
-  );
+      <Grow in={true} timeout={1000}>
+        <Card sx={{ minWidth: 200, flex: 1 }}>
+          <CardContent sx={{ textAlign: 'center' }}>
+            <Box sx={{ color: '#EF4444', mb: 1 }}>
+              <Cancel sx={{ fontSize: 40 }} />
+            </Box>
+            <Typography variant="h4" sx={{ fontWeight: 700, mb: 1, color: '#EF4444' }}>
+              {stats.inativos}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Funcionários Inativos
+            </Typography>
+          </CardContent>
+        </Card>
+      </Grow>
+
+      <Grow in={true} timeout={1200}>
+        <Card sx={{ minWidth: 200, flex: 1 }}>
+          <CardContent sx={{ textAlign: 'center' }}>
+            <Box sx={{ color: '#3B82F6', mb: 1 }}>
+              <TrendingUp sx={{ fontSize: 40 }} />
+            </Box>
+            <Typography variant="h4" sx={{ fontWeight: 700, mb: 1, color: '#3B82F6' }}>
+              {stats.mediaPresencas.toFixed(1)}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Média de Participações
+            </Typography>
+          </CardContent>
+        </Card>
+      </Grow>
+    </Box>
+
+    {/* Filtros */}
+    <Grow in={true} timeout={1400}>
+      <Card sx={{ mb: 3 }}>
+        <CardContent sx={{ pb: '16px !important' }}>
+          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+            <TextField
+              placeholder="Buscar por nome, email ou cargo..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <Search sx={{ color: 'text.secondary' }} />
+                  </InputAdornment>
+                ),
+              }}
+              sx={{
+                flex: 1,
+                minWidth: 300,
+                '& .MuiOutlinedInput-root': {
+                  borderRadius: 2,
+                  bgcolor: 'rgba(255,255,255,0.03)',
+                  '&:hover': {
+                    bgcolor: 'rgba(255,255,255,0.05)',
+                  },
+                },
+              }}
+            />
+            
+            <FormControl sx={{ minWidth: 200 }}>
+              <InputLabel>Filtrar por Unidade</InputLabel>
+              <Select
+                value={unidadeFiltro}
+                onChange={(e) => setUnidadeFiltro(e.target.value)}
+                label="Filtrar por Unidade"
+                sx={{
+                  borderRadius: 2,
+                  bgcolor: 'rgba(255,255,255,0.03)',
+                }}
+              >
+                <MenuItem value="">
+                  <em>Todas as Unidades</em>
+                </MenuItem>
+                <MenuItem value="Principal">Principal</MenuItem>
+                {unidades.map((unidade) => (
+                  <MenuItem key={unidade} value={unidade}>
+                    {unidade}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Box>
+        </CardContent>
+      </Card>
+    </Grow>
+
+    {/* Tabela de Dados - SEM TOOLBAR CUSTOMIZADA */}
+    <Grow in={true} timeout={1600}>
+      <Card>
+        <DataGrid
+          rows={filteredFuncionarios}
+          columns={columns}
+          loading={loading}
+          localeText={ptBR.components.MuiDataGrid.defaultProps.localeText}
+          initialState={{
+            pagination: { paginationModel: { pageSize: 10 } },
+            sorting: {
+              sortModel: [{ field: 'total_presencas', sort: 'desc' }],
+            },
+          }}
+          pageSizeOptions={[5, 10, 25, 50]}
+          sx={{
+            border: 'none',
+            minHeight: 600,
+            '& .MuiDataGrid-root': {
+              border: 'none',
+            },
+            '& .MuiDataGrid-cell': {
+              borderColor: 'rgba(255,255,255,0.05)',
+            },
+            '& .MuiDataGrid-columnHeaders': {
+              backgroundColor: 'rgba(255,255,255,0.02)',
+              borderColor: 'rgba(255,255,255,0.05)',
+            },
+            '& .MuiDataGrid-row:hover': {
+              backgroundColor: 'rgba(255,255,255,0.02)',
+            },
+            '& .MuiDataGrid-footerContainer': {
+              borderColor: 'rgba(255,255,255,0.05)',
+            },
+          }}
+        />
+      </Card>
+    </Grow>
+  </Container>
+);
 }
 
 export default Funcionarios;

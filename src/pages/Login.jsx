@@ -171,29 +171,7 @@ const Login = ({ onLoginSuccess }) => {
                 </Box>
 
                 {/* Demo Users */}
-                <Box sx={{ mb: 3 }}>
-                  <Typography variant="body2" sx={{ mb: 2, color: 'text.secondary' }}>
-                    Contas de demonstração:
-                  </Typography>
-                  <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                    {demoUsers.map((user) => (
-                      <Chip
-                        key={user.email}
-                        label={user.label}
-                        icon={user.tipo === 'admin' ? <AdminPanelSettings /> : <Business />}
-                        onClick={() => handleDemoLogin(user)}
-                        sx={{
-                          bgcolor: user.tipo === 'admin' ? 'rgba(139, 92, 246, 0.2)' : 'rgba(24, 144, 255, 0.2)',
-                          color: user.tipo === 'admin' ? '#8B5CF6' : '#1890FF',
-                          '&:hover': {
-                            bgcolor: user.tipo === 'admin' ? 'rgba(139, 92, 246, 0.3)' : 'rgba(24, 144, 255, 0.3)',
-                          },
-                          cursor: 'pointer',
-                        }}
-                      />
-                    ))}
-                  </Box>
-                </Box>
+                
 
                 {/* Alerts */}
                 {error && (

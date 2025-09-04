@@ -117,11 +117,43 @@ export const getFuncionarios = () => {
 };
 
 /**
+ * Busca dados de aulas populares (NOVA FUNCIONALIDADE - ALTA PRIORIDADE)
+ * Retorna: horários mais populares e tipos de aula com maior adesão
+ */
+export const getAulasPopulares = () => {
+  return apiClient.get('/cliente/aulas-populares');
+};
+
+/**
+ * Busca dados para timeline do programa (NOVA FUNCIONALIDADE - ALTA PRIORIDADE)
+ * Retorna: marcos importantes e evolução temporal do programa
+ */
+export const getTimelineData = () => {
+  return apiClient.get('/cliente/timeline');
+};
+
+/**
+ * Busca dados detalhados para drilldown (NOVA FUNCIONALIDADE - INTERATIVIDADE)
+ * @param {string} tipo - 'departamento', 'periodo', 'aula'
+ * @param {string} filtro - ID ou nome do item específico
+ */
+export const getDrilldownData = (tipo, filtro) => {
+  return apiClient.get(`/cliente/drilldown/${tipo}?filter=${filtro}`);
+};
+
+/**
  * Busca relatórios mensais
  * @param {string} periodo - Número de meses (ex: '6', '12')
  */
 export const getRelatorios = (periodo = '6') => {
   return apiClient.get(`/cliente/relatorios?periodo=${periodo}`);
+};
+
+/**
+ * Busca dados para gráfico de evolução temporal
+ */
+export const getEvolutionData = () => {
+  return apiClient.get('/cliente/evolucao');
 };
 
 /**
@@ -237,6 +269,9 @@ export const isCurrentUserAdmin = () => {
 export const isCurrentUserCliente = () => {
   const user = getCurrentUser();
   return user?.tipo_usuario === 'cliente_final';
+};
+export const getParticipantesAula = (aulaId) => {
+  return apiClient.get(`/cliente/aulas/${aulaId}/participantes`);
 };
 
 export default apiClient;
